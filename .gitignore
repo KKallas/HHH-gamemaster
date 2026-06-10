@@ -1,0 +1,21 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+
+# ---- hub / machine runtime state (regenerated locally) ----
+hub-settings.json
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Note: each machine also has its own .gitignore for its runtime *.json
+# (camera-settings.json, areas.json, settings.json, ...).
