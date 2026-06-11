@@ -7,8 +7,14 @@ The **game-master host** for the HHH game. It runs the [Manual Override](https:/
 | `dobot-mg400-relay` | Owns the MG400 arm; arbitrates control between the **purple** and **green** sides with a safety filter (joint/workspace clamps, lease watchdog, latched E-stop). Remote player controllers connect to it over HTTP. |
 | `webcam` | OpenCV capture + ArUco tag detection. |
 | `playfield-areas` | The playfield zone visualization. |
+| `joint-angles-test` | Direct manipulator (joint angles) — for **operator takeover**. |
+| `cartesian-xyz-test` | Direct manipulator (Cartesian X/Y/Z/R) — for **operator takeover**. |
 
-This repo is the **gamehost configuration**: the engine is vendored in `hub/`, and the machines it hosts are the three folders under `prototypes/`. Player-side controllers (joint-angles, cartesian) live in Manual Override and connect here by picking **Relay** mode + their side.
+This repo is the **gamehost configuration**: the engine is vendored in `hub/`, and the machines it hosts are the folders under `prototypes/`. Player-side controllers also live in Manual Override; players connect here by picking **Relay** mode + their side.
+
+### Operator takeover
+
+The two direct controllers are included so the game-master can step in and drive the arm by hand. **Only one thing can hold the arm connection at a time**, so to take over: **disable the `dobot-mg400-relay` machine** (toggle it off in the hub dashboard — this drops the relay's arm connection; the watchdog smooth-stops first), then open `joint-angles-test` or `cartesian-xyz-test` in **Direct** mode and connect to the arm IP. Re-enable the relay to hand control back to the sides.
 
 ## Run
 
