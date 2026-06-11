@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Playfield — Controller</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef;
+    --muted:#8a93a6; --accent:#4f9dff; --ok:#36c46b; --err:#ff5462;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background: var(--bg); color: var(--txt); line-height: 1.4; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header a { color: var(--accent); }
+  main { max-width: 920px; margin: 0 auto; padding: 20px; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt);
+    padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color:#fff; }
+  button.del { background:#2a1216; border-color:#5a2630; color:#ff8a96; padding:6px 10px; }
+  button.del:hover { border-color: var(--err); }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; margin-bottom:16px; }
+  .panel h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted); margin:0 0 12px; display:flex; justify-content:space-between; align-items:center; }
+  .area { background: var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; margin-bottom:12px; }
+  .area .top { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .swatch { width:18px; height:18px; border-radius:5px; border:1px solid #0008; flex:0 0 auto; }
+  .area .name { font-weight:600; font-size:15px; background:transparent; border:none;
+    color:var(--txt); font-family:inherit; flex:1; padding:2px 4px; border-radius:4px; }
+  .area .name:focus { outline:1px solid var(--line); background:#0c0e12; }
+  .area .id { color:var(--muted); font-size:11px; font-family:ui-monospace,Menlo,monospace; }
+  .fields { display:grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .f { display:flex; flex-direction:column; gap:4px; }
+  .f label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;
+    display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .f .val { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .f .num { width:66px; background:#0c0e12; border:1px solid var(--line); color:var(--accent);
+    border-radius:4px; padding:2px 6px; font:inherit; font-size:12px; text-align:right;
+    font-variant-numeric:tabular-nums; -moz-appearance:textfield; }
+  .f .num:focus { outline:none; border-color:var(--accent); }
+  .display { display:flex; flex-wrap:wrap; gap:16px; margin-top:12px;
+    padding-top:12px; border-top:1px solid var(--line); }
+  .display label { display:inline-flex; align-items:center; gap:6px; font-size:12px;
+    color:var(--muted); cursor:pointer; text-transform:uppercase; letter-spacing:.05em; }
+  .display input { accent-color: var(--accent); cursor:pointer; margin:0; }
+  .links { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px;
+    padding-top:12px; border-top:1px solid var(--line); }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#13161c; border:1px solid var(--line);
+    border-radius:999px; padding:3px 6px 3px 9px; font-size:12px; }
+  .chip .cdot { width:9px; height:9px; border-radius:50%; }
+  .chip .x { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:15px;
+    line-height:1; padding:0 2px; }
+  .chip .x:hover { color:var(--err); }
+  .linkSel { background:#0c0e12; border:1px solid var(--line); color:var(--txt); border-radius:6px;
+    padding:5px 8px; font:inherit; font-size:12px; }
+  .links .addlink { background:#232733; border:1px solid var(--line); color:var(--txt);
+    padding:5px 10px; border-radius:6px; font:inherit; font-size:12px; cursor:pointer; }
+  .links .addlink:hover { border-color:var(--accent); }
+  .f input[type=range] { width:100%; accent-color: var(--accent); }
+  .f input[type=color] { width:100%; height:30px; background:transparent; border:1px solid var(--line);
+    border-radius:6px; padding:2px; cursor:pointer; }
+  #status { color: var(--muted); font-size:12px; margin-left:auto; }
+  #status.err { color: var(--err); }
+  .empty { color: var(--muted); text-align:center; padding:40px; }
+</style>
+  <link rel="stylesheet" href="/theme.css" />
+</head>
+<body>
+<header>
+  <h1>Playfield — Controller</h1>
+  <span class="sub">edit areas &amp; the view · open the <a href="screen" target="_blank">screen</a> or <a href="game" target="_blank">tag game</a></span>
+</header>
+<main>
+  <!-- View & Effects: glow, depth-of-field, camera. Persisted to disk. -->
+  <section class="panel" id="view">
+    <h2><span>View &amp; Effects</span><button id="resetView">Reset view</button></h2>
+    <div class="fields" id="viewFields"></div>
+  </section>
+
+  <div class="bar">
+    <button class="primary" id="add">+ New area</button>
+    <button id="setupGame">Reset to tag game areas</button>
+    <button id="refresh">Refresh</button>
+    <span id="status">…</span>
+  </div>
+  <div id="list"></div>
+</main>
+
+<script>
+// All requests are relative to this page's directory, so the prototype works
+// wherever the hub mounts it (e.g. /p/playfield-areas/). U('/api/x') -> that dir + api/x.
+const BASE = location.pathname.replace(/\/[^/]*$/, '/');
+const U = p => BASE + p.replace(/^\//, '');
+
+const listEl = document.getElementById('list');
+const statusEl = document.getElementById('status');
+
+function status(msg, err = false) {
+  statusEl.textContent = msg;
+  statusEl.className = err ? 'err' : '';
+}
+
+// The View & Effects panel holds off updating its inputs while you edit them
+// (`editingView`). The area list updates each input in place and guards each one
+// individually (focus / mid-drag), so it needs no panel-wide flag.
+let editingView = false;
+
+const perfNow = () => performance.now();
+const round2 = v => Math.round(v * 100) / 100;
+
+// PATCH helper shared by both panels. Writes are THROTTLED, not debounced: a
+// drag streams to the server at a steady rate (leading edge + trailing edge)
+// instead of being swallowed until you let go — so the screen tracks the slider
+// live instead of jumping to the final value. `immediate` (typed-in / one-shot
+// edits) bypasses the throttle and sends right away.
+const THROTTLE_MS = 50;
+const wstate = {};   // key -> { last, timer, url, body }
+function send(url, body) {
+  return fetch(U(url), {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(r => r.json()).then(d => { if (!d.ok) status(d.error || 'error', true); })
+    .catch(() => status('offline', true));
+}
+function patch(url, body, key, immediate = false) {
+  const st = wstate[key] || (wstate[key] = { last: 0, timer: null, url: null, body: null });
+  if (immediate) {
+    clearTimeout(st.timer); st.timer = null; st.body = null; st.last = perfNow();
+    send(url, body); return;
+  }
+  st.url = url; st.body = body;
+  const wait = THROTTLE_MS - (perfNow() - st.last);
+  if (wait <= 0) {                       // enough time has passed: send now (leading edge)
+    st.last = perfNow(); st.body = null; send(url, body);
+  } else if (!st.timer) {                // otherwise send the latest value when the window elapses
+    st.timer = setTimeout(() => {
+      st.timer = null; st.last = perfNow();
+      if (st.body) { const u = st.url, b = st.body; st.body = null; send(u, b); }
+    }, wait);
+  }
+}
+const setArea = (id, body, immediate) => patch(`/api/areas/${id}`, body, `area:${id}`, immediate);
+const setView = (body) => patch('/api/settings', body, 'view');
+
+// ---- View & Effects panel (built once; values updated from the live stream)
+const VIEW_FIELDS = [
+  { path: 'cam.x', label: 'location x',          min: -40,  max: 40,  step: 0.5 },
+  { path: 'cam.y', label: 'location y',          min: -40,  max: 40,  step: 0.5 },
+  { path: 'cam.z', label: 'location z',          min: -40,  max: 40,  step: 0.5 },
+  { path: 'rot.x', label: 'rotation x°',         min: -180, max: 180, step: 1 },
+  { path: 'rot.y', label: 'rotation y°',         min: -180, max: 180, step: 1 },
+  { path: 'rot.z', label: 'rotation z° (roll)',  min: -180, max: 180, step: 1 },
+  { path: 'fov',   label: 'fov°',                min: 10,   max: 120, step: 1 },
+  { path: 'bloom', label: 'glow',                min: 0,    max: 2.5, step: 0.05 },
+  { path: 'dof',   label: 'depth of field',      min: 0,    max: 3,   step: 0.05 },
+];
+const viewInputs = {};   // path -> { range, val }
+
+function getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+function bodyForPath(path, value) {
+  // 'cam.x' -> {cam:{x:value}};  'bloom' -> {bloom:value}
+  const parts = path.split('.');
+  if (parts.length === 1) return { [parts[0]]: value };
+  return { [parts[0]]: { [parts[1]]: value } };
+}
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function buildViewPanel() {
+  const wrap = document.getElementById('viewFields');
+  for (const f of VIEW_FIELDS) {
+    const cell = document.createElement('div');
+    cell.className = 'f';
+
+    // label + a type-in number box (kept in sync with the slider)
+    const lab = document.createElement('label');
+    const num = document.createElement('input');
+    num.type = 'number';
+    num.className = 'num';
+    num.min = f.min; num.max = f.max; num.step = f.step;
+    lab.append(document.createTextNode(f.label), num);
+
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = f.min; range.max = f.max; range.step = f.step;
+
+    range.oninput = () => {
+      num.value = (+range.value);
+      setView(bodyForPath(f.path, +range.value));
+    };
+    range.onpointerdown = () => editingView = true;
+    range.onpointerup = () => editingView = false;
+
+    // typing an exact value: clamp, mirror to the slider, push to the server
+    num.onfocus = () => editingView = true;
+    num.onblur = () => editingView = false;
+    num.onchange = () => {
+      const v = clamp(parseFloat(num.value), f.min, f.max);
+      if (Number.isNaN(v)) return;
+      num.value = v;
+      range.value = v;
+      setView(bodyForPath(f.path, v));
+    };
+
+    cell.append(lab, range);
+    wrap.appendChild(cell);
+    viewInputs[f.path] = { range, num };
+  }
+}
+
+function updateViewPanel(settings) {
+  if (editingView) return;
+  for (const f of VIEW_FIELDS) {
+    const v = +getPath(settings, f.path);
+    viewInputs[f.path].range.value = v;
+    viewInputs[f.path].num.value = Math.round(v * 100) / 100;
+  }
+}
+
+document.getElementById('resetView').onclick = () =>
+  setView({ bloom: 1.1, dof: 1.2, fov: 50, cam: { x: 0, y: 9, z: 13 }, rot: { x: -33, y: 0, z: 0 } });
+
+// ---- area list -------------------------------------------------------------
+const FIELDS = [
+  { key: 'x',      min: -12, max: 12, step: 0.1 },
+  { key: 'z',      min: -12, max: 12, step: 0.1 },
+  { key: 'y',      min: -6,  max: 6,  step: 0.1, label: 'y (height)' },
+  { key: 'size',   min: 0.2, max: 14, step: 0.1 },
+  { key: 'glow',   min: 0,   max: 4,  step: 0.05 },
+];
+
+// per-area component visibility on the clean screen (checkboxes)
+const DISPLAY = [
+  { key: 'show_area',  label: 'area' },
+  { key: 'show_links', label: 'lines' },
+];
+
+// Cards are built once and then updated IN PLACE on every push — never rebuilt
+// from scratch. That's what lets a 30 fps driven variable (e.g. the Approaching
+// Box tween) move a slider smoothly instead of stepping, and it keeps focus,
+// the colour picker and the link dropdown alive while the stream flows past.
+const cards = new Map();     // id -> card record
+let listEmpty = false;
+let lastMetaSig = '';        // ids + names + colours; changes only on add/remove/rename/recolour
+
+function metaSig(areas) {
+  return areas.map(a => a.id + ':' + a.name + ':' + a.color).join('|');
+}
+
+function syncList(areas) {
+  // drop cards for areas that are gone
+  const ids = new Set(areas.map(a => a.id));
+  for (const [id, rec] of cards) {
+    if (!ids.has(id)) { rec.el.remove(); cards.delete(id); }
+  }
+  if (!areas.length) {
+    if (!listEmpty) { listEl.innerHTML = '<div class="empty">No areas. Click “+ New area”.</div>'; listEmpty = true; }
+    lastMetaSig = '';
+    return;
+  }
+  if (listEmpty) { listEl.innerHTML = ''; listEmpty = false; }
+
+  // Rebuild link chips/pickers only when membership/names/colours move — NOT on a
+  // tween (which only changes numeric fields), so the dropdown stays usable.
+  const sig = metaSig(areas);
+  const metaChanged = sig !== lastMetaSig;
+  lastMetaSig = sig;
+
+  let prev = null;
+  for (const a of areas) {
+    let rec = cards.get(a.id);
+    if (!rec) { rec = buildCard(a); cards.set(a.id, rec); }
+    updateCard(rec, a, metaChanged);
+    // keep DOM order in step with the server's order
+    const want = prev ? prev.nextSibling : listEl.firstChild;
+    if (want !== rec.el) listEl.insertBefore(rec.el, want);
+    prev = rec.el;
+  }
+}
+
+function buildCard(a) {
+  const el = document.createElement('div');
+  el.className = 'area';
+
+  const top = document.createElement('div');
+  top.className = 'top';
+  const sw = document.createElement('span');
+  sw.className = 'swatch';
+  sw.style.background = a.color;
+  const name = document.createElement('input');
+  name.className = 'name';
+  name.value = a.name;
+  const id = document.createElement('span');
+  id.className = 'id';
+  id.textContent = a.id;
+  const del = document.createElement('button');
+  del.className = 'del';
+  del.textContent = 'Delete';
+  top.append(sw, name, id, del);
+  el.appendChild(top);
+
+  const fieldsWrap = document.createElement('div');
+  fieldsWrap.className = 'fields';
+
+  const cf = document.createElement('div');
+  cf.className = 'f';
+  cf.innerHTML = '<label>color</label>';
+  const color = document.createElement('input');
+  color.type = 'color';
+  color.value = a.color;
+  cf.appendChild(color);
+  fieldsWrap.appendChild(cf);
+
+  const fields = {};
+  for (const f of FIELDS) {
+    const wrap = document.createElement('div');
+    wrap.className = 'f';
+    const lab = document.createElement('label');
+    const num = document.createElement('input');
+    num.type = 'number'; num.className = 'num';
+    num.min = f.min; num.max = f.max; num.step = f.step;
+    num.value = (+a[f.key]);
+    lab.append(document.createTextNode(f.label || f.key), num);
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = f.min; range.max = f.max; range.step = f.step;
+    range.value = a[f.key];
+    range.oninput = () => { num.value = round2(+range.value); setArea(a.id, { [f.key]: +range.value }); };
+    range.onpointerdown = () => { range.dataset.drag = '1'; };
+    range.onpointerup = () => { range.dataset.drag = ''; };
+    num.onchange = () => {
+      const v = clamp(parseFloat(num.value), f.min, f.max);
+      if (Number.isNaN(v)) return;
+      num.value = v; range.value = v;
+      setArea(a.id, { [f.key]: v }, true);
+    };
+    wrap.append(lab, range);
+    fieldsWrap.appendChild(wrap);
+    fields[f.key] = { range, num };
+  }
+  el.appendChild(fieldsWrap);
+
+  // per-component visibility toggles — written immediately, persisted per area
+  const dispWrap = document.createElement('div');
+  dispWrap.className = 'display';
+  const disp = {};
+  for (const d of DISPLAY) {
+    const lab = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = a[d.key] !== false;
+    cb.onchange = () => setArea(a.id, { [d.key]: cb.checked }, true);
+    lab.append(cb, document.createTextNode(' ' + d.label));
+    dispWrap.appendChild(lab);
+    disp[d.key] = cb;
+  }
+  el.appendChild(dispWrap);
+
+  const linksWrap = document.createElement('div');
+  el.appendChild(linksWrap);
+
+  const rec = { el, name, swatch: sw, color, fields, disp, linksWrap,
+                linksSig: null, colorEditing: false, linksEditing: false };
+
+  name.onchange = () => setArea(a.id, { name: name.value }, true);
+  color.oninput = () => { sw.style.background = color.value; setArea(a.id, { color: color.value }); };
+  color.onpointerdown = () => { rec.colorEditing = true; };
+  color.onchange = () => { rec.colorEditing = false; };
+  color.onblur = () => { rec.colorEditing = false; };
+  del.onclick = async () => { await fetch(U(`/api/areas/${a.id}`), { method: 'DELETE' }); refresh(); };
+
+  return rec;
+}
+
+// Push the latest values into an existing card. Each input is skipped while it's
+// focused or mid-drag, so an incoming push never yanks the control you're using.
+function updateCard(rec, a, metaChanged) {
+  rec.swatch.style.background = a.color;
+  if (document.activeElement !== rec.name) rec.name.value = a.name;
+  if (!rec.colorEditing && document.activeElement !== rec.color) rec.color.value = a.color;
+  for (const f of FIELDS) {
+    const { range, num } = rec.fields[f.key];
+    if (range.dataset.drag === '1' || document.activeElement === range || document.activeElement === num) continue;
+    const v = +a[f.key];
+    range.value = v;
+    num.value = round2(v);
+  }
+  for (const d of DISPLAY) {
+    const cb = rec.disp[d.key];
+    if (document.activeElement !== cb) cb.checked = a[d.key] !== false;
+  }
+  const sig = JSON.stringify(a.links || []);
+  if ((metaChanged || rec.linksSig !== sig) && !rec.linksEditing) {
+    rec.linksSig = sig;
+    rebuildLinks(rec, a);
+  }
+}
+
+// Per-zone links: chips for existing links (× to remove) + a picker to add one.
+// Rebuilt only when this zone's links or the set of areas actually change.
+function rebuildLinks(rec, a) {
+  const wrap = rec.linksWrap;
+  wrap.className = 'links';
+  wrap.innerHTML = '';
+  const nameOf = id => { const t = allAreas.find(x => x.id === id); return t ? t.name : id; };
+
+  for (const to of (a.links || [])) {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    const dot = document.createElement('span'); dot.className = 'cdot';
+    const other = allAreas.find(x => x.id === to);
+    dot.style.background = other ? other.color : '#888';
+    const label = document.createElement('span'); label.textContent = nameOf(to);
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×';
+    x.title = 'Remove link';
+    x.onclick = async () => { await fetch(U(`/api/areas/${a.id}/links/${to}`), { method: 'DELETE' }); refresh(); };
+    chip.append(dot, label, x);
+    wrap.appendChild(chip);
+  }
+
+  const sel = document.createElement('select');
+  sel.className = 'linkSel';
+  const others = allAreas.filter(x => x.id !== a.id && !(a.links || []).includes(x.id));
+  sel.innerHTML = '<option value="">link to…</option>'
+    + others.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+  sel.onfocus = () => { rec.linksEditing = true; };   // hold off rebuilds while choosing
+  sel.onblur = () => { rec.linksEditing = false; };
+  const add = document.createElement('button');
+  add.className = 'addlink'; add.textContent = '+ Link';
+  add.onclick = async () => {
+    if (!sel.value) return;
+    await fetch(U(`/api/areas/${a.id}/links`), { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: sel.value }) });
+    rec.linksEditing = false; refresh();
+  };
+  wrap.append(sel, add);
+}
+
+// ---- live state via Server-Sent Events ------------------------------------
+// The server pushes the full state the instant anything changes, so a driven
+// variable updates the controls here as fast as it moves on the screen — no poll
+// step. EventSource auto-reconnects if the connection drops.
+let allAreas = [];     // latest areas, for the per-zone link pickers
+let lastRev = -1, lastSrev = -1;
+function applyState(data, force = false) {
+  status(`${data.areas.length} areas · live`);
+  allAreas = data.areas;
+  if (force || data.rev !== lastRev) { lastRev = data.rev; syncList(data.areas); }
+  if (force || data.srev !== lastSrev) { lastSrev = data.srev; updateViewPanel(data.settings); }
+}
+async function refresh() {   // one-shot pull: instant first paint + resync after a local edit
+  try { applyState(await (await fetch(U('/api/state'))).json(), true); }
+  catch (_) { status('offline', true); }
+}
+
+document.getElementById('add').onclick = async () => {
+  await fetch(U('/api/areas'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  refresh();
+};
+document.getElementById('setupGame').onclick = async () => {
+  const state = await (await fetch(U('/api/state'))).json();
+  await Promise.all(state.areas.map(area => fetch(U(`/api/areas/${area.id}`), { method: 'DELETE' })));
+  const specs = [
+    { name: 'pickup', x: -6.4, y: 0, z: 0, size: 3.0, color: '#4f9dff', glow: 1.9, marker: 0,
+      show_area: true, show_aruco: false, show_links: false },
+    { name: 'deposit', x: 5.4, y: 0, z: 0, size: 3.0, color: '#35d07f', glow: 2.3, marker: 0,
+      show_area: true, show_aruco: false, show_links: false },
+  ];
+  for (const spec of specs) {
+    await fetch(U('/api/areas'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(spec),
+    });
+  }
+  refresh();
+};
+document.getElementById('refresh').onclick = refresh;
+
+buildViewPanel();
+refresh();
+const es = new EventSource(U('/api/events'));   // live pushes from the server
+es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch (_) {} };
+es.onerror = () => status('offline', true);
+</script>
+</body>
+</html>
