@@ -23,6 +23,16 @@ pip install -r requirements.txt
 cd prototypes && python hub.py        # http://localhost:8000
 ```
 
+### Run everything on one machine
+
+`run-all.sh` launches the game-master plus both player sandboxes, each on its own port:
+
+```bash
+./run-all.sh        # game-master :8000, purple :8001, green :8002
+```
+
+It expects the two player sandboxes (clones of [HHH-player](https://github.com/KKallas/HHH-player)) at `../HHH-player-purple` and `../HHH-player-green`. Override ports/paths via env vars — see the top of the script (`GM_PORT`, `PURPLE_PORT`, `GREEN_PORT`, `PURPLE_DIR`, `GREEN_DIR`). Ctrl-C stops all three.
+
 Open the **Dobot MG400 Relay** tab (operator view): connect the arm (default `192.168.1.6`), enable it, and the two sides can then acquire control from their own controllers.
 
 ### How a player connects
