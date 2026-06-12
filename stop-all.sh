@@ -1,24 +1,19 @@
 #!/usr/bin/env bash
-# Stop the game-master and player sandbox hubs so the system can restart cleanly.
+# Stop the hub (all three sandboxes share one server/port) so it can restart
+# cleanly.
 #
 # Usage:
 #   ./stop-all.sh
 #
-# Override ports with the same env vars used by run-all.sh:
-#   GM_PORT      game-master port    (default 8000)
-#   PURPLE_PORT  purple sandbox port (default 8001)
-#   GREEN_PORT   green sandbox port  (default 8002)
+# Override the port with the same env var used by run-all.sh:
+#   HUB_PORT=8000 ./stop-all.sh
 #
-# If a process is protected and normal kill is denied:
+# If the process is protected and normal kill is denied:
 #   USE_SUDO=1 ./stop-all.sh
 set -u
 
-GM_PORT="${GM_PORT:-8000}"
-PURPLE_PORT="${PURPLE_PORT:-8001}"
-GREEN_PORT="${GREEN_PORT:-8002}"
+HUB_PORT="${HUB_PORT:-8000}"
 USE_SUDO="${USE_SUDO:-0}"
-
-ports=("$GM_PORT" "$PURPLE_PORT" "$GREEN_PORT")
 
 listening_pids() {
   lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -u
@@ -65,8 +60,6 @@ stop_port() {
   fi
 }
 
-for port in "${ports[@]}"; do
-  stop_port "$port"
-done
+stop_port "$HUB_PORT"
 
 echo "done"

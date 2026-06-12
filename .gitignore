@@ -10,6 +10,11 @@ env/
 
 # ---- hub / machine runtime state (regenerated locally) ----
 hub-settings.json
+# passwords + cookie secret — generated on first run, never committed
+hub-config.json
+# import staging/backup folders
+sandboxes/*/prototypes.prev/
+sandboxes/*/.import-new/
 
 # ---- OS / editor ----
 .DS_Store
