@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manual Override — Sandboxes</title>
+<style>
+  :root {
+    --bg:#0d0f0d; --line:#2a3128; --ink:#c8d4c0; --dim:#5e6b58;
+    --hot:#b6ff3a; --pad:#1b1f1a; --grid:#1a1e18;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "DM Mono",ui-monospace,"Cascadia Mono",Menlo,monospace;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 30px; height: 100vh;
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size: 22px 22px; }
+  h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: .3em;
+    text-transform: uppercase; color: var(--hot); }
+  .sub { color: var(--dim); font-size: 11px; letter-spacing: .15em;
+    text-transform: uppercase; margin-top: -22px; }
+  #cards { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  a.card { display: flex; flex-direction: column; gap: 8px; width: 200px;
+    background: rgba(27,31,26,.92); border: 1px solid var(--line);
+    border-radius: 10px; padding: 22px; text-decoration: none;
+    color: var(--ink); transition: .12s; }
+  a.card:hover { border-color: var(--card-accent); }
+  a.card .dot { width: 12px; height: 12px; border-radius: 50%;
+    background: var(--card-accent); }
+  a.card .name { font-size: 13px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--card-accent); }
+  a.card .hint { font-size: 11px; color: var(--dim); letter-spacing: .08em; }
+</style>
+</head>
+<body>
+<h1>Manual Override</h1>
+<span class="sub">one server, three sandboxes</span>
+<div id="cards"></div>
+<script>
+const SANDBOXES = __SANDBOXES__;
+const cards = document.getElementById('cards');
+for (const sb of SANDBOXES) {
+  const a = document.createElement('a');
+  a.className = 'card';
+  a.href = `/s/${sb.name}/`;
+  a.style.setProperty('--card-accent', sb.accent || '#b6ff3a');
+  a.innerHTML = `<span class="dot"></span><span class="name"></span>
+    <span class="hint">password required</span>`;
+  a.querySelector('.name').textContent = sb.label;
+  cards.appendChild(a);
+}
+</script>
+</body>
+</html>

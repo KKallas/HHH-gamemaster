@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__LABEL__ — Login</title>
+<style>
+  :root {
+    --bg:#0d0f0d; --line:#2a3128; --ink:#c8d4c0; --dim:#5e6b58;
+    --hot:__ACCENT__; --pad:#1b1f1a; --grid:#1a1e18; --warn:#ff5b3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "DM Mono",ui-monospace,"Cascadia Mono",Menlo,monospace;
+    display: flex; align-items: center; justify-content: center; height: 100vh;
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size: 22px 22px; }
+  form { background: rgba(13,15,13,.92); border: 1px solid var(--line);
+    border-radius: 10px; padding: 28px 30px; width: 320px;
+    display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 14px; margin: 0; font-weight: 700; letter-spacing: .28em;
+    text-transform: uppercase; color: var(--hot); }
+  .sub { color: var(--dim); font-size: 11px; letter-spacing: .15em;
+    text-transform: uppercase; }
+  input[type=password] { background: var(--pad); border: 1px solid var(--line);
+    color: var(--ink); padding: 9px 11px; border-radius: 6px; font: inherit;
+    font-size: 13px; letter-spacing: .08em; }
+  input[type=password]:focus { outline: none; border-color: var(--hot); }
+  button { background: var(--hot); border: 1px solid var(--hot); color: #0d0f0d;
+    padding: 9px 12px; border-radius: 6px; font: inherit; font-size: 12px;
+    letter-spacing: .12em; text-transform: uppercase; font-weight: 700;
+    cursor: pointer; }
+  .err { color: var(--warn); font-size: 12px; letter-spacing: .06em;
+    min-height: 14px; }
+  a.home { color: var(--dim); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; text-decoration: none; }
+  a.home:hover { color: var(--hot); }
+</style>
+</head>
+<body>
+<form method="post">
+  <h1>__LABEL__</h1>
+  <span class="sub">enter this sandbox's password</span>
+  <input type="password" name="password" placeholder="password" autofocus
+         autocomplete="current-password" />
+  <div class="err">__ERROR__</div>
+  <button type="submit">Enter</button>
+  <a class="home" href="/">← all sandboxes</a>
+</form>
+</body>
+</html>
