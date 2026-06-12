@@ -1,0 +1,3 @@
+# Atom Manager prototype
+pyserial>=3.5
+# Flashing uses the repo-local PlatformIO install at ../../.venv/bin/pio.

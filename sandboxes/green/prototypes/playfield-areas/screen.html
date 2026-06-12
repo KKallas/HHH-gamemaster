@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Playfield — Screen</title>
+<style>
+  :root { --txt:#e6e9ef; --muted:#8a93a6; --panel:rgba(20,23,30,.82); --line:#2a2f3a; --accent:#4f9dff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070b; color: var(--txt);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+</style>
+  <link rel="stylesheet" href="/theme.css" />
+</head>
+<body>
+<div id="app"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// All requests are relative to this page's directory, so the prototype works
+// wherever the hub mounts it (e.g. /p/playfield-areas/).
+const BASE = location.pathname.replace(/\/[^/]*$/, '/');
+const U = p => BASE + p.replace(/^\//, '');
+const DEG = Math.PI / 180, RAD = 180 / Math.PI;
+
+// ---- scene -----------------------------------------------------------------
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070b);
+scene.fog = new THREE.FogExp2(0x05070b, 0.02);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 9, 13);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+app.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x33405a, 0.7));
+const key = new THREE.DirectionalLight(0xbcd0ff, 0.9);
+key.position.set(6, 12, 8);
+scene.add(key);
+
+const grid = new THREE.GridHelper(24, 24, 0x213049, 0x131a26);
+scene.add(grid);
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(24, 24),
+  new THREE.MeshStandardMaterial({ color: 0x080b11, roughness: 1, metalness: 0 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.01;
+scene.add(floor);
+
+// ---- post-processing: bloom (glow) + bokeh (depth of field) ----------------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.1, 0.5, 0.0);
+composer.addPass(bloom);
+const bokeh = new BokehPass(scene, camera, { focus: 13.0, aperture: 0.0012, maxblur: 0.012 });
+composer.addPass(bokeh);
+composer.addPass(new OutputPass());
+
+// ---- controls --------------------------------------------------------------
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.target.set(0, 0.5, 0);
+
+const gizmo = new TransformControls(camera, renderer.domElement);
+gizmo.setMode('translate');
+gizmo.addEventListener('dragging-changed', e => { orbit.enabled = !e.value; });
+scene.add(gizmo);
+
+// ---- area meshes, keyed by id ---------------------------------------------
+// Each mesh stores a `target` (the latest server values). The render loop eases
+// the mesh toward its target every frame, so motion stays smooth between pushes.
+const meshes = new Map();
+let selectedId = null;
+
+// Markers live on their own layer so they can be drawn as a crisp overlay AFTER
+// the bloom/DOF pass — i.e. on top of the glow, sharp, with no separate mode.
+const MARKER_LAYER = 1;
+
+// ArUco marker textures from the server (DICT_4X4_50), cached by id. Nearest
+// filtering keeps the black/white cells crisp so a top camera can detect them.
+const texLoader = new THREE.TextureLoader();
+const markerTextures = new Map();
+function markerTexture(mid) {
+  let t = markerTextures.get(mid);
+  if (!t) {
+    t = texLoader.load(U('/api/marker/' + mid));
+    t.magFilter = THREE.NearestFilter;
+    t.minFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    markerTextures.set(mid, t);
+  }
+  return t;
+}
+
+function makeMesh(area) {
+  const geo = new THREE.BoxGeometry(1, 0.18, 1);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.1 });
+  const mesh = new THREE.Mesh(geo, mat);
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
+  );
+  mesh.add(edges);
+  mesh.userData.edges = edges;
+  mesh.userData.id = area.id;
+
+  // ArUco marker on BOTH faces (centred), so it reads whether the playfield is
+  // viewed from above or from underneath. The bottom plane is a 180° rotation of
+  // the top (a rotation, not a mirror), so it stays a valid, detectable marker.
+  // toneMapped:false keeps the white pure for contrast. Both sit on the marker
+  // layer so they're drawn as a crisp overlay on top of the glow.
+  // depthTest/Write off so the overlay pass always paints them crisp on top of
+  // the composited glow, regardless of the screen depth buffer.
+  const markerMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, toneMapped: false, depthTest: false, depthWrite: false, fog: false,
+  });
+  const geoM = new THREE.PlaneGeometry(0.74, 0.74);
+  const markerTop = new THREE.Mesh(geoM, markerMat);
+  markerTop.rotation.x = -Math.PI / 2; markerTop.position.y = 0.10;
+  const markerBot = new THREE.Mesh(geoM, markerMat);
+  markerBot.rotation.x = Math.PI / 2;  markerBot.position.y = -0.10;
+  markerTop.layers.set(MARKER_LAYER); markerTop.renderOrder = 10;
+  markerBot.layers.set(MARKER_LAYER); markerBot.renderOrder = 10;
+  mesh.add(markerTop, markerBot);
+  mesh.userData.markerMat = markerMat;
+  mesh.userData.markers = [markerTop, markerBot];
+  mesh.userData.markerId = -1;
+
+  scene.add(mesh);
+  return mesh;
+}
+
+function setTarget(mesh, area) {
+  mesh.userData.area = area;
+  mesh.userData.target = {
+    x: area.x, y: area.y + 0.09, z: area.z,
+    size: area.size, glow: area.glow, color: new THREE.Color(area.color),
+  };
+  // drop below the playfield (negative height) -> hide it (also un-raycastable)
+  mesh.visible = area.y >= 0;
+  if (!mesh.visible && selectedId === area.id) deselect();
+  // swap the ArUco marker texture if this area's id changed
+  const mid = area.marker | 0;
+  if (mesh.userData.markerId !== mid) {
+    mesh.userData.markerId = mid;
+    mesh.userData.markerMat.map = markerTexture(mid);
+    mesh.userData.markerMat.needsUpdate = true;
+  }
+  // per-component visibility, configured per area in the controller
+  const showArea = area.show_area !== false;
+  mesh.material.visible = showArea;                 // box body
+  mesh.userData.edges.visible = showArea;           // box outline
+  for (const m of mesh.userData.markers) m.visible = area.show_aruco !== false;
+  mesh.userData.showLinks = area.show_links !== false;   // read by updateLinks()
+  if (!mesh.userData.inited) { snapToTarget(mesh); mesh.userData.inited = true; }
+}
+
+function snapToTarget(mesh) {
+  const t = mesh.userData.target;
+  mesh.position.set(t.x, t.y, t.z);
+  mesh.scale.set(t.size, 1, t.size);
+  mesh.material.color.copy(t.color);
+  mesh.material.emissive.copy(t.color);
+  mesh.material.emissiveIntensity = t.glow;
+  mesh.userData.edges.material.color.copy(t.color);
+}
+
+function syncAreas(areas) {
+  const seen = new Set();
+  for (const area of areas) {
+    seen.add(area.id);
+    let mesh = meshes.get(area.id);
+    if (!mesh) { mesh = makeMesh(area); meshes.set(area.id, mesh); }
+    // don't fight the user while they're dragging this one
+    if (gizmo.dragging && selectedId === area.id) { mesh.userData.area = area; continue; }
+    setTarget(mesh, area);
+  }
+  for (const [id, mesh] of meshes) {
+    if (!seen.has(id)) {
+      if (selectedId === id) deselect();
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      meshes.delete(id);
+    }
+  }
+}
+
+// per-frame easing toward each target (frame-rate independent)
+function interpolate(dt) {
+  const k = 1 - Math.exp(-dt * 10);     // ~10 = responsiveness; higher = snappier
+  for (const mesh of meshes.values()) {
+    const t = mesh.userData.target;
+    if (!t) continue;
+    if (gizmo.dragging && selectedId === mesh.userData.id) continue;
+    mesh.position.x += (t.x - mesh.position.x) * k;
+    mesh.position.y += (t.y - mesh.position.y) * k;
+    mesh.position.z += (t.z - mesh.position.z) * k;
+    const s = mesh.scale.x + (t.size - mesh.scale.x) * k;
+    mesh.scale.set(s, 1, s);
+    mesh.material.emissiveIntensity += (t.glow - mesh.material.emissiveIntensity) * k;
+    mesh.material.color.lerp(t.color, k);
+    mesh.material.emissive.lerp(t.color, k);
+    mesh.userData.edges.material.color.lerp(t.color, k);
+  }
+}
+
+// ---- glowing links between zones ------------------------------------------
+// Each area can link to other areas (area.links = [id,...]); we draw a thin
+// emissive cylinder per link, coloured by the source zone, on the bloomed layer
+// so it glows. Endpoints follow the areas every frame. Keyed by "from|to".
+const linkMeshes = new Map();
+const _up = new THREE.Vector3(0, 1, 0);
+
+function makeLinkMesh() {
+  const geo = new THREE.CylinderGeometry(0.05, 0.05, 1, 10);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.0 });
+  const mesh = new THREE.Mesh(geo, mat);
+  scene.add(mesh);
+  return mesh;
+}
+
+function syncLinks(areas) {
+  const seen = new Set();
+  for (const a of areas) {
+    for (const to of (a.links || [])) {
+      const key = a.id + '|' + to;
+      seen.add(key);
+      let lm = linkMeshes.get(key);
+      if (!lm) { lm = makeLinkMesh(); linkMeshes.set(key, lm); }
+      lm.userData.a = a.id; lm.userData.b = to;
+      const col = new THREE.Color(a.color);          // link glows in the zone's colour
+      lm.material.color.copy(col);
+      lm.material.emissive.copy(col);
+      lm.material.emissiveIntensity = Math.max(1.2, a.glow);
+    }
+  }
+  for (const [key, lm] of linkMeshes) {
+    if (!seen.has(key)) {
+      scene.remove(lm); lm.geometry.dispose(); lm.material.dispose(); linkMeshes.delete(key);
+    }
+  }
+}
+
+function updateLinks() {
+  for (const lm of linkMeshes.values()) {
+    const ma = meshes.get(lm.userData.a), mb = meshes.get(lm.userData.b);
+    if (!ma || !mb || !ma.visible || !mb.visible || ma.userData.showLinks === false) { lm.visible = false; continue; }
+    lm.visible = true;
+    const p1 = ma.position, p2 = mb.position;
+    const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
+    const len = Math.hypot(dx, dy, dz) || 1e-4;
+    lm.position.set(p1.x + dx / 2, p1.y + dy / 2, p1.z + dz / 2);
+    lm.scale.set(1, len, 1);
+    lm.quaternion.setFromUnitVectors(_up, new THREE.Vector3(dx / len, dy / len, dz / len));
+  }
+}
+
+// ---- selection + drag-to-move ---------------------------------------------
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+const round = v => Math.round(v * 100) / 100;
+
+function select(mesh) {
+  selectedId = mesh.userData.id;
+  gizmo.attach(mesh);
+}
+function deselect() {
+  selectedId = null;
+  gizmo.detach();
+}
+
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (gizmo.dragging) return;
+  pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects([...meshes.values()], false);
+  if (hits.length) select(hits[0].object);
+  else if (!e.shiftKey) deselect();
+});
+
+gizmo.addEventListener('dragging-changed', async e => {
+  if (e.value || !selectedId) return;          // only on drag-end
+  const mesh = meshes.get(selectedId);
+  if (!mesh) return;
+  const body = { x: round(mesh.position.x), y: round(mesh.position.y - 0.09), z: round(mesh.position.z) };
+  try {
+    await fetch(U(`/api/areas/${selectedId}`), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  } catch (_) { /* poller will resync */ }
+});
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') deselect();
+  if (e.key === 'r') gizmo.setMode('rotate');
+  if (e.key === 's') gizmo.setMode('scale');
+  if (e.key === 't') gizmo.setMode('translate');
+});
+
+// ---- camera transform (Blender-style: location + rotation euler + fov) -----
+// The persisted settings are the camera's transform. Editing them in the
+// controller drives the camera here; orbiting with the mouse writes location +
+// rotation X/Y back. Rotation Z is roll, applied as a post-step each frame so
+// it survives OrbitControls (which always levels to up = +Y).
+let roll = 0;                 // radians, from rotation.z
+let lastRx = 0, lastRy = 0;   // radians, pre-roll euler captured during orbit
+
+// Forward (look) direction for a given pitch (rx) and yaw (ry), no roll.
+function forwardFrom(rx, ry) {
+  return new THREE.Vector3(
+    -Math.sin(ry) * Math.cos(rx),
+    Math.sin(rx),
+    -Math.cos(ry) * Math.cos(rx),
+  );
+}
+
+function applyTransform(s) {
+  if (Math.abs(camera.fov - s.fov) > 0.01) { camera.fov = s.fov; camera.updateProjectionMatrix(); }
+  // Reproduce the transform through OrbitControls: place the pivot in front of
+  // the camera along the requested look direction, keeping the current radius.
+  const radius = Math.max(0.5, camera.position.distanceTo(orbit.target));
+  camera.position.set(s.cam.x, s.cam.y, s.cam.z);
+  const rx = s.rot.x * DEG, ry = s.rot.y * DEG;
+  orbit.target.copy(camera.position).addScaledVector(forwardFrom(rx, ry), radius);
+  camera.up.set(0, 1, 0);
+  roll = s.rot.z * DEG;
+  lastRx = rx; lastRy = ry;
+  orbit.update();
+}
+
+function applySettings(s) {
+  bloom.strength = s.bloom;
+  bokeh.materialBokeh.uniforms.aperture.value = s.dof * 0.001;
+  if (Math.abs(camera.fov - s.fov) > 0.01) { camera.fov = s.fov; camera.updateProjectionMatrix(); }
+  if (orbiting) { roll = s.rot.z * DEG; return; }  // don't fight an active drag
+  // Adopt location/rotation only when they meaningfully differ (restores a saved
+  // view, lets the controller drive the camera, ignores the echo of our saves).
+  const want = new THREE.Vector3(s.cam.x, s.cam.y, s.cam.z);
+  const rotDiff = Math.abs(lastRx * RAD - s.rot.x) + Math.abs(lastRy * RAD - s.rot.y)
+                + Math.abs(roll * RAD - s.rot.z);
+  if (camera.position.distanceTo(want) > 0.05 || rotDiff > 0.5) {
+    suppressCamSaveUntil = perfNow() + 600;       // don't re-save what we just set
+    applyTransform(s);
+  } else {
+    roll = s.rot.z * DEG;
+  }
+}
+
+const perfNow = () => performance.now();
+let orbiting = false;
+let suppressCamSaveUntil = 0;
+let camSaveTimer = null;
+
+orbit.addEventListener('start', () => { orbiting = true; });
+orbit.addEventListener('end', () => { orbiting = false; scheduleCamSave(); });
+orbit.addEventListener('change', () => {
+  // fires inside orbit.update(), before this frame's roll is applied — so the
+  // camera euler here is the clean pre-roll pitch/yaw we want to persist.
+  lastRx = camera.rotation.x; lastRy = camera.rotation.y;
+  scheduleCamSave();
+});
+
+function scheduleCamSave() {
+  if (perfNow() < suppressCamSaveUntil) return;
+  clearTimeout(camSaveTimer);
+  camSaveTimer = setTimeout(saveCamera, 400);   // after movement settles
+}
+async function saveCamera() {
+  const body = {
+    cam: { x: round(camera.position.x), y: round(camera.position.y), z: round(camera.position.z) },
+    rot: { x: round(lastRx * RAD), y: round(lastRy * RAD), z: round(roll * RAD) },
+    fov: round(camera.fov),
+  };
+  try {
+    await fetch(U('/api/settings'), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  } catch (_) { /* keep last good local view */ }
+}
+
+// ---- live state via Server-Sent Events ------------------------------------
+// The server pushes the full state the instant any area or setting changes, so
+// the box follows a driven variable (e.g. the Approaching Box tween) with no
+// poll lag. The per-frame easing in interpolate() still smooths between pushes.
+let lastRev = -1, lastSrev = -1;
+function applyState(data) {
+  if (data.rev !== lastRev) { lastRev = data.rev; syncAreas(data.areas); syncLinks(data.areas); }
+  if (data.srev !== lastSrev) { lastSrev = data.srev; applySettings(data.settings); }
+}
+const es = new EventSource(U('/api/events'));   // auto-reconnects on a dropped link
+es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch (_) {} };
+
+// ---- render loop (smooth, every frame) ------------------------------------
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  interpolate(dt);
+  updateLinks();
+  orbit.update();
+  if (roll) camera.rotateZ(roll);   // apply roll on top (OrbitControls levels each frame)
+
+  // 1) the glowing playfield through bloom + DOF (markers excluded)
+  camera.layers.set(0);
+  composer.render();
+  // 2) the ArUco markers as a crisp overlay on top of the glow — straight to the
+  //    screen, no bloom/DOF, depth-test off so they always paint sharp on top.
+  //    Blank the background first, else render() would repaint it over the glow.
+  camera.layers.set(MARKER_LAYER);
+  const bg = scene.background;
+  scene.background = null;
+  renderer.setRenderTarget(null);
+  renderer.autoClear = false;
+  renderer.render(scene, camera);
+  renderer.autoClear = true;
+  scene.background = bg;
+  camera.layers.set(0);             // restore (raycasting/selection use layer 0)
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

@@ -17,6 +17,7 @@
   --hot:#b6ff3a; --pad:#1b1f1a; --grid:#1a1e18;
   /* semantic (kept distinct from the accent so status still reads) */
   --ok:#7cff9b; --warn:#ffb13a; --err:#ff5b3a; --estop:#ff3b30;
+  --action-red:#c00024; --green-button-text:#7a0b00; --red-button-text:#f0fff1;
   /* aliases the prototype controllers reference */
   --txt:var(--ink); --muted:var(--dim); --panel:#15181f; --accent:var(--hot);
   --purple:#c08bff; --blue:var(--hot);
@@ -64,11 +65,34 @@ button.primary, button.accent, a.btn.accent, a.btn.primary {
 button.primary:hover, button.accent:hover, a.btn.accent:hover {
   background: #c9ff5a; color: #0d0f0d;
 }
-button.ok { border-color: var(--ok); color: var(--ok); }
-button.ok:hover { background: var(--ok); color: #0d0f0d; }
-button.stop, button.del, button.estop { border-color: var(--err); color: var(--err); }
-button.stop:hover, button.del:hover, button.estop:hover { background: var(--err); color: #0d0f0d; }
-button:disabled { opacity: .35; cursor: not-allowed; border-color: var(--line); color: var(--dim); }
+button.ok {
+  background: var(--ok); border-color: var(--ok); color: var(--green-button-text);
+  font-weight: 700;
+}
+button.ok:hover { background: #9effb4; color: var(--green-button-text); }
+button.stop, button.del, button.estop {
+  background: var(--action-red); border-color: var(--action-red); color: var(--red-button-text);
+  font-weight: 700;
+}
+button.stop:hover, button.del:hover, button.estop:hover {
+  background: #d00028; border-color: #d00028; color: var(--red-button-text);
+}
+button:disabled,
+a.btn.disabled,
+label.btn.disabled {
+  background: #171b22; border-color: #303642; color: #8f98aa;
+  cursor: not-allowed; opacity: 1;
+}
+button.primary:disabled,
+button.accent:disabled,
+button.ok:disabled,
+button.stop:disabled,
+button.del:disabled,
+button.estop:disabled {
+  background: #171b22; border-color: #303642; color: #8f98aa;
+}
+
+.seg button { color: #c8d4c0; }
 
 /* ---- status pills ------------------------------------------------------- */
 .pill { border: 1px solid var(--line); background: var(--pad); color: var(--dim);
