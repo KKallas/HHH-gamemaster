@@ -5,6 +5,32 @@ connections — one per side, **purple** and **green** — and routes each side'
 commands to *its own* arm, applying a safety filter, then exposes an HTTP + SSE
 API that remote client controllers talk to. Mounted at `/p/dobot-mg400-relay`.
 
+## Hardware setup (USB Ethernet dongles) — do this first
+
+Both MG400s keep Dobot's **factory IP `192.168.1.6`** (we deliberately don't
+change it), so they can NOT hang off one network — the relay tells them apart by
+which **physical port** the traffic leaves through. To (re)build the setup:
+
+1. **One USB Ethernet dongle per robot**, plugged into the gamemaster Mac.
+   Cable each dongle **directly** to its own robot (no switch/router in between):
+   - **purple** robot ↔ dongle #1
+   - **green** robot ↔ dongle #2
+2. **Configure each dongle manually** (System Settings → Network → the dongle →
+   Details → TCP/IP → Configure IPv4: *Manually*). These numbers are FIXED — the
+   same everywhere in this project:
+   - dongle #1 (purple): IP **192.168.1.50**, subnet mask `255.255.255.0`,
+     router (default gateway) and DNS/nameserver left **empty**
+   - dongle #2 (green): IP **192.168.1.51**, subnet mask `255.255.255.0`,
+     router (default gateway) and DNS/nameserver left **empty**
+That's it — you do NOT need to know the interface names (`en10`, `en11`, …;
+they vary by Mac and USB port). At connect time the relay finds whichever
+interface owns `.50` / `.51` and pins that side's sockets to it. If a side
+fails with "no local interface has IP 192.168.1.5x", that dongle isn't plugged
+in or isn't configured — check with `ifconfig | grep 192.168.1.5`.
+
+Swapped sides (purple GUI moves the green arm)? The cables are crossed — swap
+the two robot cables (or the dongles' `.50`/`.51` assignment).
+
 The two sides are **independent** and drive **concurrently**: purple's controller
 drives the purple arm while green's controller drives the green arm. There is no
 blocking across sides.
@@ -27,11 +53,22 @@ picks the follower; switching modes stops the old follower and starts the other
 while keeping the connection + enabled state intact. `control_mode()` reports
 which is running.
 
+**Both arms share ONE robot IP** (Dobot's factory `192.168.1.6`) and are told
+apart by **which local network interface** the connection leaves through: every
+socket is pinned to its side's interface with the macOS `IP_BOUND_IF` option
+(and bound to that interface's local IP) *before* connecting — the same trick as
+the `dualdobottest` proof of concept. Without the pin the OS would route both
+sides' traffic to one interface and only one arm would ever answer (binding the
+source IP alone does not help; routing is destination-based). The interface
+**name** is auto-detected at connect time as whichever interface owns the side's
+fixed dongle IP, so config and GUI only deal in `.50`/`.51`.
+
 ## Contract (what clients depend on)
 
 Sides: `purple`, `green`. Modes: `joint`, `cartesian`. `LEASE_SECS = 2.0`.
-Per-side default arm IPs:
-`{"purple": "192.168.1.6", "green": "192.168.1.7"}`.
+Shared robot IP: `192.168.1.6` (both arms). Per-side default links (the fixed
+dongle IP each side's sockets are pinned to; interface name auto-detected):
+`{"purple": {"local_ip": "192.168.1.50"}, "green": {"local_ip": "192.168.1.51"}}`.
 
 ### State
 
@@ -62,7 +99,7 @@ index 1; both set = `conflict`. `control_mode` is that arm's running follower.
 
 | Method | Path | Body | Effect |
 |---|---|---|---|
-| POST | `/api/connect` | `{side, ip}` | Connect THAT side's arm, replacing any existing connection for it. |
+| POST | `/api/connect` | `{side, local_ip?, ip?, iface?}` | Connect THAT side's arm via its pinned dongle, replacing any existing connection for it. Omitted fields fall back to that side's default dongle IP / the shared robot IP; `iface` overrides the auto-detection. |
 | POST | `/api/disconnect` | `{side}` | Disconnect that side's arm. |
 | POST | `/api/enable` | `{side}` | Enable that side's arm + start its follower in its current mode (else `joint`). Idempotent. Clears the arm's error first. (Also callable by clients.) |
 | POST | `/api/kick` | `{side}` | Force-release that side's controller; smooth-stop that side's arm. |
