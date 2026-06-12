@@ -6,6 +6,10 @@ relays each side's move/pump commands to ITS OWN arm. The two sides are fully
 INDEPENDENT and drive concurrently: purple's controller drives the purple arm
 while green's controller drives the green arm, with no blocking between sides.
 
+Both arms keep Dobot's factory IP (192.168.1.6) and are told apart by which
+LOCAL NETWORK INTERFACE each side's sockets are pinned to (macOS IP_BOUND_IF —
+see relay_arm.py and the dualdobottest proof of concept).
+
 Per SIDE the relay still arbitrates: a side must *acquire* its arm and gets an
 opaque token + a lease; a per-side watchdog smooth-stops that side's arm if its
 holder stops heartbeating. This stops two tabs of the SAME side from fighting,
@@ -44,17 +48,37 @@ from relay_arm import DobotMG400, DobotError  # noqa: E402
 
 MANIFEST = {
     "name": "Dobot MG400 Relay",
-    "description": "Two-arm game-master relay: owns the purple and green MG400s "
-                   "and routes each side's commands to its OWN arm. The sides "
-                   "drive concurrently. Remote controllers connect via its HTTP API.",
+    "description": (
+        "Two-arm relay: owns BOTH MG400 arms and forwards each side's commands "
+        "to its OWN arm. Player controllers connect through its HTTP API.\n"
+        "**Need to know to get it working:**\n"
+        "- Both robots keep the factory IP `192.168.1.6` — do not change it.\n"
+        "- Each robot needs its OWN USB Ethernet dongle on this Mac, cable "
+        "straight from dongle to robot (no switch in between).\n"
+        "- Purple's dongle: IP `192.168.1.50`. Green's dongle: IP `192.168.1.51`.\n"
+        "- Both dongles: subnet mask `255.255.255.0`; leave router and DNS empty.\n"
+        "- No interface names needed — the relay finds the right dongle by its IP.\n"
+        "- Put both robots in API mode, then Connect each side below."
+    ),
     "default_page": "",
     "pages": [{"path": "", "label": "Relay (operator)"}],
 }
 bp = Blueprint("dobot_mg400_relay", __name__)
 
 # ---- configuration --------------------------------------------------------
-# Per-side arm IPs (operator-editable in the GUI / via /api/connect).
-DEFAULT_IPS = {"purple": "192.168.1.6", "green": "192.168.1.7"}
+# BOTH arms keep Dobot's factory IP; they are told apart by WHICH USB dongle
+# (local network interface) the connection leaves through. Each side's sockets
+# are pinned to its dongle's interface (macOS IP_BOUND_IF — see
+# relay_arm.DobotMG400), the same trick as the dualdobottest proof of concept.
+# Only the dongles' FIXED local IPs are configured here; the interface names
+# (en10/en11/... — they vary by Mac and USB port) are auto-detected at connect
+# time as whichever interface owns that IP. Operator-editable in the GUI / via
+# /api/connect ({side, local_ip?, ip?, iface?}).
+ROBOT_IP = "192.168.1.6"
+DEFAULT_LINKS = {
+    "purple": {"local_ip": "192.168.1.50"},
+    "green": {"local_ip": "192.168.1.51"},
+}
 
 SIDES = ("purple", "green")
 
@@ -389,7 +413,8 @@ def config():
         "workspace": WORKSPACE,
         "radius_min": RADIUS_MIN,
         "radius_max": RADIUS_MAX,
-        "default_ips": DEFAULT_IPS,
+        "robot_ip": ROBOT_IP,
+        "default_links": DEFAULT_LINKS,
         "sides": list(SIDES),
         "modes": list(MODES),
         "lease_secs": LEASE_SECS,
@@ -426,21 +451,25 @@ def connect():
     if side is None:
         _log_incoming("connect", data, ok=False, error="side must be 'purple' or 'green'")
         return _fail("side must be 'purple' or 'green'")
-    ip = data.get("ip") or DEFAULT_IPS[side]
+    ip = (data.get("ip") or ROBOT_IP).strip()
+    local_ip = (data.get("local_ip") or DEFAULT_LINKS[side]["local_ip"]).strip()
+    iface = (data.get("iface") or "").strip() or None  # optional override
+    link = {"ip": ip, "local_ip": local_ip, "iface": iface}
     with _arm_locks[side]:
         if _robots[side] is not None:
             _robots[side].close()
             _robots[side] = None
-        robot = DobotMG400(ip)
+        robot = DobotMG400(ip, iface=iface, local_ip=local_ip)
         try:
             robot.connect()
         except DobotError as e:
-            _log_command("robot", side, "connect", {"ip": ip}, ok=False, error=str(e))
-            return _fail(f"Could not connect to {ip}: {e}")
+            _log_command("robot", side, "connect", link, ok=False, error=str(e))
+            return _fail(f"Could not connect to {ip} via {local_ip}: {e}")
         _robots[side] = robot
-    _log_command("robot", side, "connect", {"ip": ip}, ok=True)
+    link["iface"] = robot.iface  # the auto-detected (or given) interface
+    _log_command("robot", side, "connect", link, ok=True)
     _live.bump()
-    return _ok(side=side, ip=ip)
+    return _ok(side=side, **link)
 
 
 @bp.route("/api/disconnect", methods=["POST"])

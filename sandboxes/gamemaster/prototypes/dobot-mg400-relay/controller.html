@@ -109,7 +109,7 @@
       <span class="pill off connPill"><span class="dot"></span><span class="connText">Disconnected</span></span>
     </h2>
     <div class="row">
-      <input type="text" class="ip" />
+      <input type="text" class="lip" title="fixed IP of this side's USB dongle — the interface to pin to is auto-detected from it" />
       <button class="primary btnConnect">Connect</button>
       <button class="btnDisconnect">Disconnect</button>
     </div>
@@ -159,9 +159,9 @@ function buildCards(defaults) {
     node.querySelector(".swatch").classList.add(side);
     node.querySelector(".title").textContent = side[0].toUpperCase() + side.slice(1);
     const q = sel => node.querySelector(sel);
-    const ip = q(".ip");
-    ip.value = (defaults && defaults[side]) || "";
-    q(".btnConnect").onclick = () => api("/api/connect", { side, ip: ip.value.trim() });
+    const lip = q(".lip");
+    lip.value = ((defaults && defaults[side]) || {}).local_ip || "";
+    q(".btnConnect").onclick = () => api("/api/connect", { side, local_ip: lip.value.trim() });
     q(".btnDisconnect").onclick = () => api("/api/disconnect", { side });
     q(".btnKick").onclick = () => api("/api/kick", { side });
     host.appendChild(node);
@@ -249,7 +249,7 @@ function applyCommandLog(rows) {
 
 async function init() {
   const cfg = await api("/api/config");
-  buildCards(cfg.default_ips || {});
+  buildCards(cfg.default_links || {});
   applyState(await api("/api/state"));   // initial paint
   const es = new EventSource(U("/api/events"));   // live pushes; auto-reconnects
   es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch (_) {} };

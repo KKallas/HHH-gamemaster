@@ -1,37 +1,83 @@
 # Dobot MG400 Relay (two arms)
 
-A game-master **relay** machine for the Manual Override hub. It owns **two** MG400
-connections — one per side, **purple** and **green** — and routes each side's
-commands to *its own* arm, applying a safety filter, then exposes an HTTP + SSE
-API that remote client controllers talk to. Mounted at `/p/dobot-mg400-relay`.
+One game-master machine that owns **both** robot arms — **purple** and **green** —
+and forwards each player's commands to *their own* arm, with safety clamps in
+between. Players never talk to a robot directly; they talk to this relay.
+Mounted at `/p/dobot-mg400-relay`.
 
-The two sides are **independent** and drive **concurrently**: purple's controller
-drives the purple arm while green's controller drives the green arm. There is no
-blocking across sides.
+## Get it working ASAP
 
-Per side the relay still arbitrates: a side must *acquire its arm* and gets an
-opaque token + a lease. This stops two tabs of the **same** side from fighting,
-but it **never** conflicts across sides (no 409). A per-side watchdog smooth-stops
-a side's arm if its holder stops heartbeating. Every command for a side passes the
-same safety clamps as the joint / cartesian test machines.
+### 1. Plug in the hardware
 
-The operator GUI and every endpoint work with **no robot connected** — an arm just
-reports `connected:false` and that side's `move`/`pump` fail cleanly.
+- **2 USB Ethernet dongles**, both into the gamemaster Mac.
+- **2 Ethernet cables**, each straight from a dongle to a robot —
+  **no switch or router in between**.
+- purple robot ↔ dongle #1, green robot ↔ dongle #2.
 
-## Driver
+### 2. Give the dongles their fixed IPs
 
-`relay_arm.py` is the unified MG400 driver merging the joint (ServoJ) and
-cartesian (ServoP) drivers into one class that owns a single connection and runs
-EITHER follower. The relay instantiates it **once per side**. `start_servo(...)`
-picks the follower; switching modes stops the old follower and starts the other
-while keeping the connection + enabled state intact. `control_mode()` reports
-which is running.
+System Settings → Network → (the dongle) → Details → TCP/IP:
 
-## Contract (what clients depend on)
+- Configure IPv4: **Manually**
+- purple's dongle: IP **192.168.1.50**
+- green's dongle: IP **192.168.1.51**
+- subnet mask (both): **255.255.255.0**
+- router (gateway) and DNS: leave **empty**
+
+Do **not** touch the robots' own IP — both stay on the Dobot factory default
+`192.168.1.6`. These numbers are fixed and the same everywhere in this project.
+
+### 3. Put both robots in API mode
+
+See `../../docs/operations/dobot-api-mode.md`. Keep each robot's hardware
+E-stop within reach and start at a low speed.
+
+### 4. Connect and drive
+
+- Start the hub (`python hub.py` in the repo root) and open the
+  **Game Master** sandbox → **Dobot MG400 Relay**.
+- Press **Connect** for each side, then **Enable**.
+- Players: open the controller in your own sandbox and press **Connect** —
+  it links through the relay to your own color automatically.
+
+### If something's off
+
+- *"no local interface has IP 192.168.1.5x"* → that dongle isn't plugged in or
+  isn't configured. Check with `ifconfig | grep 192.168.1.5`.
+- Purple GUI moves the **green** arm? The cables are crossed — swap the two
+  robot cables (or the dongles' `.50`/`.51` IPs).
+- You never need the interface names (`en10`, `en11`, … vary by Mac and USB
+  port) — the relay finds the right dongle by its IP at connect time.
+
+## How it tells two identical robots apart
+
+Both arms answer on the **same IP** (`192.168.1.6`), so plain sockets can't
+tell them apart — the OS would route everything out one port (binding the
+source IP alone doesn't help; routing is destination-based). The relay
+therefore pins every socket (dashboard / motion / feedback) to its side's
+dongle with the macOS `IP_BOUND_IF` option *before* connecting — the same
+trick as the `dualdobottest` proof of concept. The interface name is
+auto-detected as whichever interface owns the side's fixed dongle IP.
+
+`relay_arm.py` is the unified MG400 driver (merging the joint ServoJ and
+cartesian ServoP drivers): one class, one connection per arm, either follower.
+The relay instantiates it once per side; `start_servo(mode)` picks the
+follower and `control_mode()` reports which one runs.
+
+The two sides are **independent** and drive **concurrently** — purple's
+controller drives the purple arm while green's drives the green arm, with no
+blocking across sides. Per side the relay arbitrates: a controller must
+*acquire* its arm (opaque token + ~2 s lease, refreshed by heartbeats); a
+watchdog smooth-stops a side's arm if its holder goes quiet. Everything works
+with no robot connected — an arm just reports `connected:false` and that
+side's `move`/`pump` fail cleanly.
+
+## Reference — the HTTP contract (what clients depend on)
 
 Sides: `purple`, `green`. Modes: `joint`, `cartesian`. `LEASE_SECS = 2.0`.
-Per-side default arm IPs:
-`{"purple": "192.168.1.6", "green": "192.168.1.7"}`.
+Shared robot IP: `192.168.1.6` (both arms). Per-side default links (the fixed
+dongle IP each side's sockets are pinned to; interface name auto-detected):
+`{"purple": {"local_ip": "192.168.1.50"}, "green": {"local_ip": "192.168.1.51"}}`.
 
 ### State
 
@@ -62,7 +108,7 @@ index 1; both set = `conflict`. `control_mode` is that arm's running follower.
 
 | Method | Path | Body | Effect |
 |---|---|---|---|
-| POST | `/api/connect` | `{side, ip}` | Connect THAT side's arm, replacing any existing connection for it. |
+| POST | `/api/connect` | `{side, local_ip?, ip?, iface?}` | Connect THAT side's arm via its pinned dongle, replacing any existing connection for it. Omitted fields fall back to that side's default dongle IP / the shared robot IP; `iface` overrides the auto-detection. |
 | POST | `/api/disconnect` | `{side}` | Disconnect that side's arm. |
 | POST | `/api/enable` | `{side}` | Enable that side's arm + start its follower in its current mode (else `joint`). Idempotent. Clears the arm's error first. (Also callable by clients.) |
 | POST | `/api/kick` | `{side}` | Force-release that side's controller; smooth-stop that side's arm. |
@@ -109,5 +155,3 @@ invalidates that side's old token; any token mismatch on
     (J1 ±160, J2 −25…85, J3 −25…105, J4 ±160 deg);
   - cartesian: Z clamped to −150…230 mm, R to ±160°, and X/Y to the reachable
     annulus (radius 150…440 mm) then the ±450 mm box.
-- Keep each hardware E-stop within reach and start with a low speed. Put each
-  robot in API mode first — see `../../docs/operations/dobot-api-mode.md`.

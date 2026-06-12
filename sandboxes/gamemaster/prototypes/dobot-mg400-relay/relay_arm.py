@@ -19,10 +19,20 @@ A background thread streams setpoints toward a target with an acceleration-limit
 (trapezoidal) velocity profile, so live dragging eases in and out smoothly without
 overshoot. Switching mode = stop_servo() then start_servo(other); the connection
 and the enabled state are kept intact across a switch (only the follower changes).
+
+Interface pinning (dual arms on ONE IP): both MG400s keep Dobot's factory IP, so
+plain sockets can't tell them apart — the OS routes everything to one interface
+(binding the source IP alone does NOT fix that; routing is destination-based).
+Every socket is therefore pinned to a local network interface with the macOS
+IP_BOUND_IF option BEFORE connecting, so each driver instance reaches the arm on
+ITS OWN cable (same trick as dualdobottest). Only `local_ip` (the fixed address
+of that side's USB dongle) is needed: the interface NAME is auto-detected as
+whichever interface owns that IP. Pass `iface` to override the detection.
 """
 
 import socket
 import struct
+import subprocess
 import threading
 import time
 import json
@@ -32,6 +42,27 @@ import json
 PORT_DASHBOARD = 29999
 PORT_MOTION = 30003
 PORT_FEEDBACK = 30004
+
+IP_BOUND_IF = 25  # macOS setsockopt(IPPROTO_IP, IP_BOUND_IF, ifindex)
+
+
+def iface_for_ip(local_ip):
+    """Which local interface (e.g. "en10") owns `local_ip`, or None. Parses
+    ifconfig so config only needs the fixed per-side dongle IP — the interface
+    name varies by Mac/USB port and is discovered here."""
+    try:
+        out = subprocess.run(
+            ["ifconfig"], capture_output=True, text=True, check=True
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    iface = None
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            iface = line.split(":", 1)[0]
+        elif f"inet {local_ip} " in line:
+            return iface
+    return None
 
 # ---- feedback packet (offsets per Dobot's MyType struct) ------------------
 FEEDBACK_SIZE = 1440
@@ -80,8 +111,11 @@ def parse_feedback(packet):
 
 
 class DobotMG400:
-    def __init__(self, ip, connect_timeout=5.0, command_timeout=5.0):
+    def __init__(self, ip, iface=None, local_ip=None,
+                 connect_timeout=5.0, command_timeout=5.0):
         self.ip = ip
+        self.iface = iface          # interface to pin to; auto-detected from local_ip if None
+        self.local_ip = local_ip    # fixed address of this side's USB dongle
         self.connect_timeout = connect_timeout
         self.command_timeout = command_timeout
 
@@ -161,12 +195,32 @@ class DobotMG400:
 
     # -- connection -----------------------------------------------------------
     def _open(self, port, read_timeout):
-        s = socket.create_connection((self.ip, port), timeout=self.connect_timeout)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if self.iface:
+                s.setsockopt(socket.IPPROTO_IP, IP_BOUND_IF,
+                             socket.if_nametoindex(self.iface))
+            if self.local_ip:
+                s.bind((self.local_ip, 0))
+            s.settimeout(self.connect_timeout)
+            s.connect((self.ip, port))
+        except OSError:
+            s.close()
+            raise
         s.settimeout(read_timeout)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         return s
 
     def connect(self):
+        if self.local_ip and not self.iface:
+            self.iface = iface_for_ip(self.local_ip)
+            if self.iface is None:
+                raise DobotError(
+                    -1,
+                    f"no local interface has IP {self.local_ip} — is that side's "
+                    "USB dongle plugged in and configured?",
+                    "connect",
+                )
         try:
             self._dashboard = self._open(PORT_DASHBOARD, self.command_timeout)
             self._motion = self._open(PORT_MOTION, self.command_timeout)
