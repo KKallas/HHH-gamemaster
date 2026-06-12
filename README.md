@@ -5,8 +5,8 @@ The **single host** for the HHH game: ONE server (the [Manual Override](https://
 | Sandbox | URL | Machines |
 |---|---|---|
 | `gamemaster` | `/s/gamemaster/` | `dobot-mg400-relay`, `webcam`, `playfield-areas`, `tag-game`, `atom-manager`, `joint-angles-test`, `cartesian-xyz-test` |
-| `green` | `/s/green/` | `game-link`, `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
-| `purple` | `/s/purple/` | `game-link`, `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
+| `green` | `/s/green/` | `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
+| `purple` | `/s/purple/` | `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
 
 The machines live under `sandboxes/<name>/prototypes/`. The hub engine is shared — there is exactly one server process and one port.
 

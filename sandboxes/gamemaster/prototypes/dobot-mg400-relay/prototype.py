@@ -48,14 +48,18 @@ from relay_arm import DobotMG400, DobotError  # noqa: E402
 
 MANIFEST = {
     "name": "Dobot MG400 Relay",
-    "description": "Two-arm game-master relay: owns the purple and green MG400s "
-                   "and routes each side's commands to its OWN arm; remote "
-                   "controllers connect via its HTTP API. Both arms keep the "
-                   "factory IP 192.168.1.6, so EACH robot needs its OWN USB "
-                   "Ethernet dongle, cabled directly to it, configured manually "
-                   "to 192.168.1.50 (purple) / 192.168.1.51 (green), subnet "
-                   "255.255.255.0, router and DNS left empty; the relay pins "
-                   "each side's sockets to its dongle to tell them apart.",
+    "description": (
+        "Two-arm relay: owns BOTH MG400 arms and forwards each side's commands "
+        "to its OWN arm. Player controllers connect through its HTTP API.\n"
+        "**Need to know to get it working:**\n"
+        "- Both robots keep the factory IP `192.168.1.6` — do not change it.\n"
+        "- Each robot needs its OWN USB Ethernet dongle on this Mac, cable "
+        "straight from dongle to robot (no switch in between).\n"
+        "- Purple's dongle: IP `192.168.1.50`. Green's dongle: IP `192.168.1.51`.\n"
+        "- Both dongles: subnet mask `255.255.255.0`; leave router and DNS empty.\n"
+        "- No interface names needed — the relay finds the right dongle by its IP.\n"
+        "- Put both robots in API mode, then Connect each side below."
+    ),
     "default_page": "",
     "pages": [{"path": "", "label": "Relay (operator)"}],
 }

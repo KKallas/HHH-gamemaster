@@ -86,8 +86,8 @@ _link = "direct"
 _relay_side = None
 CONTROL_MODE = "cartesian"
 # The hub hands us a HubContext via the optional hub_init hook below; we keep it
-# so we can reach the OPTIONAL game-link machine for relay defaults (host + team).
-# None until hub_init runs, and stays None in a plain hub without that hook.
+# for our identity (which sandbox we live in), the relay-host default (this hub)
+# and the service token for relay calls. None in a plain hub without that hook.
 _hub_ctx = None
 # Sampled state (live pose/feedback from the arm), so the stream re-snapshots on
 # a short interval rather than on a bump. See prototypes/live.py.
@@ -183,33 +183,29 @@ def _clamp_pose(x, y, z, r):
     return x, y, z, r
 
 
-# ---- hub integration (optional game-link pre-fill) -------------------------
+# ---- hub integration --------------------------------------------------------
 def hub_init(ctx):
     """Optional hook the hub calls once after all machines load, handing us a
-    HubContext. We only keep it so relay defaults can fall back to the player-side
-    game-link machine. Absent in deployments that don't use the hook."""
+    HubContext: our sandbox (= our identity), the hub's own base URL (the relay
+    host default — the relay runs on this same hub) and the service token for
+    relay calls. Absent in deployments without the hook — nothing is locked then."""
     global _hub_ctx
     _hub_ctx = ctx
 
 
-def _link_defaults():
-    """The relay host + side to pre-fill from the OPTIONAL game-link machine, as
-    {"host", "side"} (each None if game-link isn't installed/enabled). Never
-    raises — relay/direct mode work fine without game-link."""
-    out = {"host": None, "side": None}
-    ctx = _hub_ctx
-    if ctx is None:
-        return out
-    try:
-        gl = ctx.get_prototype("game-link")
-        if gl is None:
-            return out
-        sel = gl.link()
-        out["host"] = sel.get("host")
-        out["side"] = sel.get("team")   # game-link calls the side a "team"
-    except Exception:   # pragma: no cover - defensive; game-link is optional
-        pass
-    return out
+PLAYER_SIDES = ("purple", "green")
+
+
+def _identity():
+    """Where this copy of the module runs: its sandbox name, whether that makes
+    it a PLAYER copy, and the side it is locked to. Player copies (green/purple
+    sandbox) may only connect via the relay and only as their own color; the
+    gamemaster copy keeps direct mode + free side choice. The sandbox comes from
+    hub_init; in a plain hub without the hook nothing is locked."""
+    sandbox = getattr(_hub_ctx, "sandbox", None)
+    is_player = sandbox in PLAYER_SIDES
+    return {"sandbox": sandbox, "is_player": is_player,
+            "side": sandbox if is_player else None}
 
 
 # ---- programmatic API (for other prototypes via the hub) -------------------
@@ -307,7 +303,12 @@ def config():
             "radius_min": RADIUS_MIN,
             "radius_max": RADIUS_MAX,
             "default_ip": DEFAULT_IP,
-            "link_defaults": _link_defaults(),
+            # relay_host_default: the relay runs on this same hub, so the UI
+            # pre-fills its host field with this server. identity tells the UI
+            # whether this is a locked player copy (relay-only, own color) or
+            # the gamemaster copy (direct mode + side choice available).
+            "relay_host_default": getattr(_hub_ctx, "local_base", None),
+            "identity": _identity(),
         }
     )
 
@@ -366,17 +367,27 @@ def connect():
     data = request.json or {}
     mode = data.get("mode", "direct")
 
+    # Player copies are locked down server-side (a hand-edited GUI changes
+    # nothing): relay link only, own color only.
+    ident = _identity()
+    if ident["is_player"]:
+        if mode != "relay":
+            return _fail("this is a player controller — it connects via the relay only")
+        wanted = data.get("side", "")
+        if wanted and wanted != ident["side"]:
+            return _fail(f"side '{wanted}' is not your color — you are {ident['side']}")
+
     if mode == "relay":
         host = data.get("host", "")
         side = data.get("side", "")
-        # If host/side weren't supplied, fall back to the player's game-link choice
-        # (optional machine); then to the legacy defaults. Keeps direct mode and an
-        # explicit relay request unchanged.
-        defaults = _link_defaults()
+        # The relay is a gamemaster machine on this same hub, so the host
+        # defaults to this server; a player's side is always their own color.
         if not host:
-            host = defaults["host"] or ""
-        if not side:
-            side = defaults["side"] or "purple"
+            host = getattr(_hub_ctx, "local_base", "") or ""
+        if ident["is_player"]:
+            side = ident["side"]
+        elif not side:
+            side = "purple"
         if side not in ("purple", "green"):
             return _fail("side must be 'purple' or 'green'")
         with _robot_lock:

@@ -46,7 +46,10 @@
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .stat { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
   .stat .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-  .stat .v { font-size:20px; font-variant-numeric:tabular-nums; margin-top:2px; }
+  /* Fixed 3-line value area + smaller font: a wrapping value can never change
+     the box height, so the page doesn't jump while a slider is being dragged. */
+  .stat .v { font-size:14px; font-variant-numeric:tabular-nums; margin-top:2px;
+    line-height:1.4; height:4.2em; overflow:hidden; }
   .axis { margin:18px 0; }
   .axis .label { display:flex; justify-content:space-between; margin-bottom:6px; }
   .axis .name { font-weight:600; }
@@ -112,17 +115,25 @@
 
 <main>
   <section class="panel">
-    <h2>Relay Connection</h2>
+    <h2>Connection</h2>
     <div class="row">
+      <span class="hint" style="margin:0">Link</span>
+      <span class="seg" id="linkSeg">
+        <button type="button" data-link="direct" class="active">Direct</button>
+        <button type="button" data-link="relay">Relay</button>
+      </span>
+      <!-- Direct: talk to the MG400 by IP. -->
+      <input type="text" id="ip" value="192.168.1.6" />
       <!-- Relay: forward to a remote game-master relay over HTTP. -->
-      <input type="text" id="relayHost" value="http://localhost:8000" style="width:200px" />
-      <select id="relaySide">
+      <input type="text" id="relayHost" value="http://localhost:8000" style="width:200px;display:none" />
+      <select id="relaySide" style="display:none">
         <option value="purple">Purple</option>
         <option value="green">Green</option>
       </select>
       <button id="btnConnect" class="primary">Connect</button>
       <button id="btnDisconnect" disabled>Disconnect</button>
       <span style="flex:1"></span>
+      <button id="btnEnable" class="ok" disabled>Enable</button>
       <button id="btnDisable" disabled>Disable</button>
       <button id="btnClear" disabled>Clear Error</button>
     </div>
@@ -131,8 +142,9 @@
       <span id="relayHoldTxt"></span>
       <span id="relayLeaseTxt"></span>
     </div>
-    <div class="hint" id="connHint">Relay link: commands forward to the
-      game-master relay over HTTP. Pick your side, then Connect.</div>
+    <div class="hint" id="connHint">Robot must be in API mode — see
+      docs/operations/dobot-api-mode.md. Connect opens control 29999 · motion
+      30003 · feedback 30004.</div>
   </section>
 
   <section class="panel">
@@ -322,7 +334,7 @@ async function flushMove() {
 
 function setControlsEnabled(on) {
   connected = on;
-  ["btnDisconnect","btnDisable","btnClear","btnStop",
+  ["btnDisconnect","btnEnable","btnDisable","btnClear","btnStop",
    "btnSync","btnSuck","btnBlow","btnPumpOff","speed","smooth"].forEach(id =>
     document.getElementById(id).disabled = !on);
   Object.values(sliderEls).forEach(el => el.disabled = !on);
@@ -331,7 +343,7 @@ function setControlsEnabled(on) {
 }
 
 // Relay link status line: side (purple/green), whether we hold the floor, and
-// the remaining lease.
+// the remaining lease. Hidden in direct mode.
 function applyRelayStatus(s) {
   const bar = document.getElementById("relayStat");
   if (s.link !== "relay") { bar.classList.remove("show"); return; }
@@ -493,20 +505,73 @@ function syncSliders() {
   });
 }
 
+// Connection link mode: "direct" (IP) or "relay" (remote game-master). Toggling
+// just swaps which inputs are shown; Connect sends the matching JSON body.
+let linkMode = "direct";
+function setLinkMode(mode) {
+  linkMode = mode;
+  document.querySelectorAll("#linkSeg button").forEach(b =>
+    b.classList.toggle("active", b.dataset.link === mode));
+  const relay = mode === "relay";
+  document.getElementById("ip").style.display = relay ? "none" : "";
+  document.getElementById("relayHost").style.display = relay ? "" : "none";
+  document.getElementById("relaySide").style.display = relay ? "" : "none";
+  document.getElementById("connHint").textContent = relay
+    ? "Relay link: commands forward to the game-master relay over HTTP (no robot on this LAN). Pick your side, then Connect to take the floor."
+    : "Robot must be in API mode — see docs/operations/dobot-api-mode.md. "
+      + "Connect opens control 29999 · motion 30003 · feedback 30004.";
+}
+
+// Player copies (green/purple sandbox) are locked down: relay link only, own
+// color only. The hub tells this page who it is via /api/config identity; the
+// gamemaster copy of this SAME page keeps the Direct/Relay toggle and the side
+// choice. (The server enforces the same rules — this just hides what a player
+// can't use anyway.)
+function applyIdentity(ident) {
+  if (!ident || !ident.is_player) return;
+  setLinkMode("relay");
+  document.getElementById("linkSeg").style.display = "none";
+  const sideSel = document.getElementById("relaySide");
+  sideSel.value = ident.side;
+  sideSel.disabled = true;
+  document.querySelector("header .sub").textContent =
+    `Manual Override · ${ident.side} player`;
+  document.getElementById("connHint").textContent =
+    `You are the ${ident.side.toUpperCase()} player — this controller connects ` +
+    `through the game-master relay and drives the ${ident.side} arm only.`;
+}
 
 function wire() {
+  document.querySelectorAll("#linkSeg button").forEach(b =>
+    b.onclick = () => setLinkMode(b.dataset.link));
   document.getElementById("btnConnect").onclick = async () => {
-    const host = document.getElementById("relayHost").value.trim();
-    const side = document.getElementById("relaySide").value;
-    log(`Connecting to relay ${host} as ${side} ...`);
-    report("connect (relay)", await api("/api/connect", { mode:"relay", host, side }));
+    if (linkMode === "relay") {
+      const host = document.getElementById("relayHost").value.trim();
+      const side = document.getElementById("relaySide").value;
+      log(`Connecting to relay ${host} as ${side} …`);
+      report("connect (relay)", await api("/api/connect", { mode:"relay", host, side }));
+    } else {
+      const ip = document.getElementById("ip").value.trim();
+      log(`Connecting to ${ip} …`);
+      report("connect", await api("/api/connect", { mode:"direct", ip }));
+    }
   };
   document.getElementById("btnDisconnect").onclick = async () =>
     report("disconnect", await api("/api/disconnect", {}));
+  document.getElementById("btnEnable").onclick = async () => {
+    const res = report("enable", await api("/api/enable", {}));
+    if (res.ok) setTimeout(syncSliders, 300);  // align sliders to start pose
+  };
   document.getElementById("btnDisable").onclick = async () =>
     report("disable", await api("/api/disable", {}));
   document.getElementById("btnClear").onclick = async () => {
-    report("clear error", await api("/api/clear_error", {}));
+    const c = report("clear error", await api("/api/clear_error", {}));
+    if (!c.ok) return;
+    // Re-arm so you can drive again: clearing the error alone leaves the servo
+    // follower stopped, so Enable (restarts ServoJ + holds the current pose) is
+    // the documented next step — do it automatically.
+    const e = report("enable", await api("/api/enable", {}));
+    if (e.ok) setTimeout(syncSliders, 300);
   };
   document.getElementById("btnStop").onclick = async () => {
     report("stop / hold", await api("/api/stop", {})); syncSliders();
@@ -541,15 +606,14 @@ function wire() {
 async function init() {
   const cfg = await api("/api/config");
   if (cfg.joint_limits) limits = cfg.joint_limits;
-  // Pre-fill the relay Host + Side from the player-side game-link machine when it's
-  // installed (link_defaults; nulls otherwise → keep the existing defaults). The
-  // user can still change them.
-  const ld = cfg.link_defaults || {};
-  if (ld.host) document.getElementById("relayHost").value = ld.host;
-  if (ld.side === "purple" || ld.side === "green") document.getElementById("relaySide").value = ld.side;
+  if (cfg.default_ip) document.getElementById("ip").value = cfg.default_ip;
+  // The relay runs on this same hub — pre-fill the relay host with this server.
+  if (cfg.relay_host_default) document.getElementById("relayHost").value = cfg.relay_host_default;
   buildAxes();
   buildSlots();
   wire();
+  setLinkMode("direct");
+  applyIdentity(cfg.identity);   // player copy → relay-only, side locked
   setControlsEnabled(false);
   poll();   // initial paint
   const es = new EventSource(BASE + "api/events");   // live pushes; auto-reconnects

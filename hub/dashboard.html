@@ -70,7 +70,14 @@
   #content { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
   #toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px;
     border-bottom: 1px solid var(--line); background: rgba(13,15,13,.9); flex-wrap: wrap; }
-  #toolbar .desc { color: var(--dim); font-size: 12px; flex: 1; min-width: 200px; letter-spacing: .04em; }
+  #toolbar .desc { color: var(--dim); font-size: 12px; flex: 1; min-width: 200px; letter-spacing: .04em;
+    max-height: 150px; overflow: auto; }
+  #toolbar .desc div { margin: 2px 0; }
+  #toolbar .desc ul { margin: 4px 0 2px 18px; padding: 0; }
+  #toolbar .desc li { margin: 2px 0; }
+  #toolbar .desc b { color: var(--ink); }
+  #toolbar .desc code { color: var(--hot); background: var(--pad); padding: 0 4px;
+    border: 1px solid var(--line); border-radius: 4px; }
   button, a.btn { background: var(--pad); border: 1px solid var(--line); color: var(--ink);
     padding: 7px 12px; border-radius: 6px; font: inherit; font-size: 12px;
     letter-spacing: .1em; text-transform: uppercase; cursor: pointer;
@@ -320,10 +327,33 @@ function renderTabs() {
 }
 
 // ---- selected prototype view ----------------------------------------------
+// Minimal markdown for machine descriptions: "- " bullets, **bold**, `code`,
+// line breaks. Text is HTML-escaped first, so a description can never inject
+// markup; plain one-line descriptions render exactly as before.
+function mdToHtml(src) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = s => esc(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  let html = '', list = false;
+  for (const ln of (src || '').split(/\r?\n/)) {
+    const m = ln.match(/^\s*[-*]\s+(.*)$/);
+    if (m) {
+      if (!list) { html += '<ul>'; list = true; }
+      html += '<li>' + inline(m[1]) + '</li>';
+    } else {
+      if (list) { html += '</ul>'; list = false; }
+      if (ln.trim()) html += '<div>' + inline(ln) + '</div>';
+    }
+  }
+  if (list) html += '</ul>';
+  return html;
+}
+
 function selectProto(p) {
   active = p;
   for (const el of tabsEl.children) el.classList.toggle('active', el.dataset.slug === p.slug);
-  descEl.textContent = (p.description || '') + (p.enabled ? '' : '  ·  (disabled)');
+  descEl.innerHTML = mdToHtml(p.description || '') + (p.enabled ? '' : '<div>·  (disabled)</div>');
 
   if (!p.enabled) {
     // don't load the GUI — stop its polling — and offer to re-enable

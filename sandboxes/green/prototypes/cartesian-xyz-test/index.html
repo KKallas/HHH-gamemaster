@@ -46,7 +46,10 @@
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .stat { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
   .stat .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-  .stat .v { font-size:20px; font-variant-numeric:tabular-nums; margin-top:2px; }
+  /* Fixed 3-line value area + smaller font: a wrapping value can never change
+     the box height, so the page doesn't jump while a slider is being dragged. */
+  .stat .v { font-size:14px; font-variant-numeric:tabular-nums; margin-top:2px;
+    line-height:1.4; height:4.2em; overflow:hidden; }
   .axis { margin:18px 0; }
   .axis .label { display:flex; justify-content:space-between; margin-bottom:6px; }
   .axis .name { font-weight:600; }
@@ -518,6 +521,25 @@ function setLinkMode(mode) {
       + "Connect opens control 29999 · motion 30003 · feedback 30004.";
 }
 
+// Player copies (green/purple sandbox) are locked down: relay link only, own
+// color only. The hub tells this page who it is via /api/config identity; the
+// gamemaster copy of this SAME page keeps the Direct/Relay toggle and the side
+// choice. (The server enforces the same rules — this just hides what a player
+// can't use anyway.)
+function applyIdentity(ident) {
+  if (!ident || !ident.is_player) return;
+  setLinkMode("relay");
+  document.getElementById("linkSeg").style.display = "none";
+  const sideSel = document.getElementById("relaySide");
+  sideSel.value = ident.side;
+  sideSel.disabled = true;
+  document.querySelector("header .sub").textContent =
+    `Manual Override · ${ident.side} player`;
+  document.getElementById("connHint").textContent =
+    `You are the ${ident.side.toUpperCase()} player — this controller connects ` +
+    `through the game-master relay and drives the ${ident.side} arm only.`;
+}
+
 function wire() {
   document.querySelectorAll("#linkSeg button").forEach(b =>
     b.onclick = () => setLinkMode(b.dataset.link));
@@ -586,16 +608,13 @@ async function init() {
   if (cfg.radius_min) radiusMin = cfg.radius_min;
   if (cfg.radius_max) radiusMax = cfg.radius_max;
   if (cfg.default_ip) document.getElementById("ip").value = cfg.default_ip;
-  // Pre-fill the relay Host + Side from the player-side game-link machine when it's
-  // installed (link_defaults; nulls otherwise → keep the existing defaults). The
-  // user can still change them; direct mode is untouched.
-  const ld = cfg.link_defaults || {};
-  if (ld.host) document.getElementById("relayHost").value = ld.host;
-  if (ld.side === "purple" || ld.side === "green") document.getElementById("relaySide").value = ld.side;
+  // The relay runs on this same hub — pre-fill the relay host with this server.
+  if (cfg.relay_host_default) document.getElementById("relayHost").value = cfg.relay_host_default;
   buildAxes();
   buildSlots();
   wire();
   setLinkMode("direct");
+  applyIdentity(cfg.identity);   // player copy → relay-only, side locked
   setControlsEnabled(false);
   poll();   // initial paint
   const es = new EventSource(BASE + "api/events");   // live pushes; auto-reconnects
