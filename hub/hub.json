@@ -1,7 +1,0 @@
-{
-  "name": "manual-override-hub",
-  "version": "0.1.0",
-  "repo": "https://github.com/KKallas/manual-override.git",
-  "ref": "main",
-  "engine_path": "hub"
-}

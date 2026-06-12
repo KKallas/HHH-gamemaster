@@ -6,7 +6,8 @@
 <title>Manual Override — Prototypes</title>
 <style>
   /* visual language borrowed from ATOM FRAMER: dark, monospace, grid backdrop,
-     lime (--hot) accent. --accent kept as an alias of --hot for any inline refs. */
+     lime (--hot) accent. --accent kept as an alias of --hot for any inline refs.
+     The sandbox's accent color (api/meta) overrides --hot at load. */
   :root {
     --bg:#0d0f0d; --line:#2a3128; --ink:#c8d4c0; --dim:#5e6b58;
     --hot:#b6ff3a; --warn:#ff5b3a; --pad:#1b1f1a; --grid:#1a1e18;
@@ -33,6 +34,8 @@
   .hdrlink { color: var(--hot); cursor: pointer; margin-left: 12px;
     text-decoration: none; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
   .hdrlink:hover { text-decoration: underline; }
+  .hdrlink.dim { color: var(--dim); }
+  .hdrlink.dim:hover { color: var(--hot); }
 
   /* tab strip — one tab per prototype */
   #tabs { display: flex; gap: 6px; padding: 8px 14px 0; border-bottom: 1px solid var(--line);
@@ -46,7 +49,7 @@
   .tab:hover .name { color: var(--hot); }
   .tab.active { background: var(--bg); color: var(--ink); border-color: var(--hot); }
   .tab.active .name { color: var(--hot); }
-  .tab.disabled { opacity: .45; }
+  .tab.disabled { background: #141814; border-color: #303642; color: #8f98aa; }
   .tab.disabled .name { text-decoration: line-through; }
   .tab[draggable=true] { cursor: grab; }
   .tab.dragging { opacity: .4; }
@@ -75,7 +78,7 @@
   button:hover, a.btn:hover { border-color: var(--hot); color: var(--hot); }
   a.btn.accent, button.accent { background: var(--hot); border-color: var(--hot);
     color: #0d0f0d; font-weight: 700; }
-  a.btn.accent:hover, button.accent:hover { background: #c9ff5a; color: #0d0f0d; }
+  a.btn.accent:hover, button.accent:hover { filter: brightness(1.1); color: #0d0f0d; }
   #frameWrap { position: relative; min-height: 0; }
   iframe { width: 100%; height: 100%; border: 0; background: var(--bg); display: block; }
   #empty, #disabledMsg { padding: 40px; color: var(--dim); height: 100%;
@@ -83,16 +86,27 @@
     letter-spacing: .06em; }
   #empty code { color: var(--hot); background: var(--pad); padding: 2px 6px;
     border: 1px solid var(--line); border-radius: 4px; }
+
+  /* import progress overlay */
+  #importOverlay { position: fixed; inset: 0; background: rgba(13,15,13,.92);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; z-index: 50; letter-spacing: .1em; text-transform: uppercase; }
+  #importOverlay .big { color: var(--hot); font-size: 14px; font-weight: 700; }
+  #importOverlay .small { color: var(--dim); font-size: 11px; }
 </style>
   <link rel="stylesheet" href="/theme.css" />
 </head>
 <body>
 <header>
-  <h1>Manual Override — Prototypes</h1>
-  <span class="sub">one server, every prototype</span>
+  <h1 id="title">Manual Override</h1>
+  <span class="sub" id="subtitle">sandbox</span>
   <span class="right">
     <span id="count"></span>
+    <a href="api/export" id="exportLink" class="hdrlink" download>⤓ export</a>
+    <a href="#" id="importLink" class="hdrlink">⤒ import</a>
+    <input type="file" id="importFile" accept=".zip,application/zip" style="display:none" />
     <a href="#" id="toggleDisabled" class="hdrlink" style="display:none"></a>
+    <a href="logout" id="logoutLink" class="hdrlink dim">logout</a>
   </span>
 </header>
 
@@ -112,9 +126,15 @@
       <button id="enableHere" class="accent" style="margin-top:12px">Enable</button>
     </div>
     <div id="empty" style="display:none">
-      No prototypes found. Add a folder with a <code>prototype.py</code> and restart the hub.
+      No prototypes found. Add a folder with a <code>prototype.py</code> (or import
+      a setup zip, top right) and restart the hub.
     </div>
   </div>
+</div>
+
+<div id="importOverlay">
+  <div class="big" id="importMsg">Importing setup…</div>
+  <div class="small" id="importDetail">uploading zip</div>
 </div>
 
 <script>
@@ -131,8 +151,16 @@ const countEl = document.getElementById('count');
 const toggleDisabled = document.getElementById('toggleDisabled');
 let protos = [];
 let active = null;
-let hideDisabled = localStorage.getItem('hideDisabled') === '1';
+let meta = { sandbox: '', label: 'Manual Override', accent: '' };
+// "tab order" mode: ON shows the reorder/enable-disable GUI (drag handles,
+// switches, disabled tabs); OFF is the clean operating mode — plain tabs only,
+// so switching between machines never fights the management controls.
+let showOrder = false;
 let dragSlug = null;
+
+// localStorage keys are namespaced per sandbox — all three dashboards share
+// this origin now.
+const K = name => `hhh:${meta.sandbox}:${name}`;
 
 // ---- enable / disable (persisted server-side) ------------------------------
 async function setEnabled(slug, enabled) {
@@ -149,25 +177,78 @@ async function setEnabled(slug, enabled) {
 }
 enableHere.onclick = () => { if (active) setEnabled(active.slug, true); };
 
-// ---- hide/show disabled + drag-to-reorder (both persisted) -----------------
+// ---- export / import --------------------------------------------------------
+const importLink = document.getElementById('importLink');
+const importFile = document.getElementById('importFile');
+const importOverlay = document.getElementById('importOverlay');
+const importMsg = document.getElementById('importMsg');
+const importDetail = document.getElementById('importDetail');
+
+document.getElementById('exportLink').onclick = e => {
+  e.preventDefault();
+  const def = `hhh-${meta.sandbox || 'sandbox'}-setup`;
+  let name = prompt('Export setup as:', def);
+  if (name === null) return;                       // cancelled
+  name = (name.trim() || def).replace(/\.zip$/i, '');
+  location.href = 'api/export?name=' + encodeURIComponent(name);
+};
+
+importLink.onclick = e => { e.preventDefault(); importFile.click(); };
+importFile.onchange = async () => {
+  const file = importFile.files[0];
+  importFile.value = '';
+  if (!file) return;
+  if (!confirm(`Replace this sandbox's prototypes with "${file.name}"?\n` +
+               'The current setup is kept server-side as prototypes.prev, ' +
+               'and the hub restarts.')) return;
+  importOverlay.style.display = 'flex';
+  importMsg.textContent = 'Importing setup…';
+  importDetail.textContent = 'uploading zip';
+  const fd = new FormData();
+  fd.append('zip', file);
+  let res, body;
+  try {
+    res = await fetch('api/import', { method: 'POST', body: fd });
+    body = await res.json();
+  } catch (_) { body = null; }
+  if (!body || !body.ok) {
+    importOverlay.style.display = 'none';
+    alert('Import failed: ' + ((body && body.error) || 'server unreachable'));
+    return;
+  }
+  importMsg.textContent = 'Setup imported';
+  importDetail.textContent = 'hub is restarting…';
+  // The server re-execs itself; poll until it answers again, then reload.
+  await new Promise(r => setTimeout(r, 1500));
+  for (let i = 0; i < 60; i++) {
+    try {
+      const ping = await fetch('api/meta', { cache: 'no-store' });
+      if (ping.ok) { location.reload(); return; }
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  importDetail.textContent = 'hub did not come back — check the server console';
+};
+
+// ---- tab order mode (reorder + enable/disable GUI) — persisted --------------
 function updateToggleLink() {
-  const anyDisabled = protos.some(p => !p.enabled);
-  toggleDisabled.style.display = anyDisabled ? '' : 'none';
-  toggleDisabled.textContent = hideDisabled ? 'show disabled' : 'hide disabled';
+  toggleDisabled.textContent = showOrder ? 'hide tab order' : 'show tab order';
+  toggleDisabled.style.display = '';
 }
 toggleDisabled.onclick = e => {
   e.preventDefault();
-  hideDisabled = !hideDisabled;
-  localStorage.setItem('hideDisabled', hideDisabled ? '1' : '0');
-  // if the active prototype just got hidden, jump to the first visible one
-  if (hideDisabled && active && !active.enabled) {
+  showOrder = !showOrder;
+  localStorage.setItem(K('showOrder'), showOrder ? '1' : '0');
+  // leaving order mode hides disabled tabs — if the active prototype just got
+  // hidden, jump to the first visible one
+  if (!showOrder && active && !active.enabled) {
     const firstVisible = protos.find(p => p.enabled);
-    if (firstVisible) { localStorage.setItem('lastProto', firstVisible.slug); selectProto(firstVisible); }
+    if (firstVisible) { localStorage.setItem(K('lastProto'), firstVisible.slug); selectProto(firstVisible); }
   }
   renderTabs();
 };
 
-function saveOrder() { localStorage.setItem('protoOrder', JSON.stringify(protos.map(p => p.slug))); }
+function saveOrder() { localStorage.setItem(K('protoOrder'), JSON.stringify(protos.map(p => p.slug))); }
 function reorderProtos(fromSlug, toSlug) {           // drop `from` before `to`
   if (fromSlug === toSlug) return;
   const order = protos.map(p => p.slug);
@@ -179,7 +260,7 @@ function reorderProtos(fromSlug, toSlug) {           // drop `from` before `to`
 }
 function applySavedOrder() {                          // reorder protos to the saved sequence
   let saved = [];
-  try { saved = JSON.parse(localStorage.getItem('protoOrder') || '[]'); } catch (_) {}
+  try { saved = JSON.parse(localStorage.getItem(K('protoOrder')) || '[]'); } catch (_) {}
   if (!Array.isArray(saved) || !saved.length) return;
   const rank = (slug, i) => { const j = saved.indexOf(slug); return j < 0 ? saved.length + i : j; };
   protos = protos.map((p, i) => ({ p, k: rank(p.slug, i) })).sort((a, b) => a.k - b.k).map(o => o.p);
@@ -189,22 +270,22 @@ function applySavedOrder() {                          // reorder protos to the s
 function renderTabs() {
   tabsEl.innerHTML = '';
   for (const p of protos) {
-    if (hideDisabled && !p.enabled) continue;
+    if (!showOrder && !p.enabled) continue;
     const tab = document.createElement('div');
     tab.className = 'tab' + (p.enabled ? '' : ' disabled') + (active && active.slug === p.slug ? ' active' : '');
     tab.dataset.slug = p.slug;
-    // when disabled prototypes are hidden we're in a clean viewing mode:
-    // no per-tab enable/disable switch and no drag-to-reorder
-    tab.draggable = !hideDisabled;
+    // outside order mode we're in the clean operating mode: no per-tab
+    // enable/disable switch and no drag-to-reorder
+    tab.draggable = showOrder;
 
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = p.name;
-    name.onclick = () => { localStorage.setItem('lastProto', p.slug); selectProto(p); };
+    name.onclick = () => { localStorage.setItem(K('lastProto'), p.slug); selectProto(p); };
 
     tab.append(name);
 
-    if (!hideDisabled) {
+    if (showOrder) {
       const sw = document.createElement('label');
       sw.className = 'sw';
       sw.title = p.enabled ? 'Disable' : 'Enable';
@@ -280,6 +361,21 @@ reloadBtn.onclick = () => { frame.src = frame.src; };
 
 async function load() {
   try {
+    meta = await (await fetch('api/meta')).json();
+  } catch (_) {}
+  if (meta.label) {
+    document.getElementById('title').textContent = meta.label;
+    document.title = `${meta.label} — Manual Override`;
+  }
+  document.getElementById('subtitle').textContent = meta.admin
+    ? 'sandbox · gamemaster access' : 'sandbox';
+  if (meta.accent) {
+    document.documentElement.style.setProperty('--hot', meta.accent);
+    document.documentElement.style.setProperty('--accent', meta.accent);
+  }
+  showOrder = localStorage.getItem(K('showOrder')) === '1';
+
+  try {
     protos = await (await fetch('api/prototypes')).json();
   } catch (_) { protos = []; }
   applySavedOrder();
@@ -293,9 +389,9 @@ async function load() {
   }
   renderTabs();
   // restore last-viewed tab across reloads; prefer an enabled one
-  const remembered = protos.find(p => p.slug === localStorage.getItem('lastProto'));
+  const remembered = protos.find(p => p.slug === localStorage.getItem(K('lastProto')));
   let want = remembered || protos.find(p => p.enabled) || protos[0];
-  if (hideDisabled && want && !want.enabled) want = protos.find(p => p.enabled) || want;
+  if (!showOrder && want && !want.enabled) want = protos.find(p => p.enabled) || want;
   selectProto(want);
 }
 

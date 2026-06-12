@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Playfield - Tag Game</title>
+<style>
+  :root {
+    --bg: #020304;
+    --txt: #f4f7fb;
+    --line: rgba(255, 255, 255, 0.22);
+    --pickup: #4f9dff;
+    --deposit: #35d07f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--txt);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  #webcamFeed {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+  #areaOverlay {
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    pointer-events: none;
+  }
+  .radiusBox {
+    position: fixed;
+    display: none;
+    border: 3px solid var(--deposit);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--deposit) 10%, transparent);
+    box-shadow:
+      0 0 18px var(--deposit),
+      inset 0 0 22px color-mix(in srgb, var(--deposit) 52%, transparent);
+  }
+  #timer {
+    position: fixed;
+    z-index: 2;
+    top: 18px;
+    left: 50%;
+    translate: -50% 0;
+    min-width: 116px;
+    padding: 10px 18px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 3, 4, 0.64);
+    color: var(--txt);
+    text-align: center;
+    font-size: clamp(42px, 8vmin, 92px);
+    line-height: 1;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(10px);
+  }
+  #restartButton {
+    position: fixed;
+    z-index: 3;
+    top: 18px;
+    right: 18px;
+    padding: 0 14px;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 3, 4, 0.64);
+    color: var(--txt);
+    font-size: 14px;
+    line-height: 1;
+    backdrop-filter: blur(10px);
+  }
+  #armStatus {
+    position: fixed;
+    z-index: 2;
+    left: 18px;
+    top: 122px;
+    width: min(360px, calc(100vw - 36px));
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 3, 4, 0.64);
+    color: rgba(244, 247, 251, 0.82);
+    backdrop-filter: blur(10px);
+    display: grid;
+    gap: 7px;
+    font-size: 13px;
+    line-height: 1.25;
+  }
+  #armStatus .row {
+    display: grid;
+    grid-template-columns: 82px 1fr;
+    gap: 8px;
+  }
+  #armStatus .label {
+    color: rgba(244, 247, 251, 0.58);
+    font-weight: 700;
+  }
+  #armStatus .value {
+    font-variant-numeric: tabular-nums;
+  }
+  #armStatus .win {
+    color: var(--deposit);
+    font-weight: 850;
+  }
+  #setup {
+    position: fixed;
+    z-index: 3;
+    left: 50%;
+    bottom: 24px;
+    translate: -50% 0;
+    width: min(92vw, 440px);
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 3, 4, 0.78);
+    box-shadow: 0 16px 54px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(12px);
+  }
+  #setup.hidden { display: none; }
+  .field {
+    display: grid;
+    gap: 6px;
+  }
+  label {
+    color: rgba(244, 247, 251, 0.72);
+    font-size: 13px;
+    font-weight: 650;
+  }
+  input, select, button {
+    min-height: 44px;
+    border-radius: 8px;
+    font: inherit;
+  }
+  input, select {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--txt);
+    padding: 8px 10px;
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+  select {
+    font-size: 16px;
+  }
+  input[type="range"] {
+    padding: 0;
+    accent-color: var(--deposit);
+  }
+  .radiusControls {
+    display: grid;
+    grid-template-columns: 1fr 86px;
+    gap: 10px;
+    align-items: center;
+  }
+  button {
+    border: 0;
+    background: var(--pickup);
+    color: #031120;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: wait;
+    opacity: 0.44;
+  }
+  #confirmDepositButton {
+    background: var(--deposit);
+    color: #00160b;
+  }
+  #setupStatus {
+    min-height: 20px;
+    color: rgba(244, 247, 251, 0.76);
+    font-size: 14px;
+    line-height: 1.35;
+  }
+</style>
+  <link rel="stylesheet" href="/theme.css" />
+</head>
+<body>
+<img id="webcamFeed" alt="webcam feed with detected tags" />
+<div id="areaOverlay" aria-hidden="true">
+  <div id="activeAreaOverlay" class="radiusBox"></div>
+</div>
+<div id="timer">90</div>
+<section id="armStatus" aria-label="robot arm scoring status">
+  <div class="row"><span class="label">Target</span><span id="targetCoords" class="value">not saved</span></div>
+  <div class="row"><span class="label">Arm</span><span id="armCoords" class="value">waiting</span></div>
+  <div class="row"><span class="label">Distance</span><span id="distanceStatus" class="value">-- / -- mm</span></div>
+  <div class="row"><span class="label">Suction</span><span id="suctionStatus" class="value">waiting</span></div>
+  <div class="row"><span class="label">Player</span><span id="playerStatus" class="value">not set</span></div>
+  <div class="row"><span class="label">Stats</span><span id="statsStatus" class="value">0 rounds</span></div>
+</section>
+<button id="restartButton" type="button">Restart</button>
+<section id="setup" aria-label="tag game setup">
+  <div class="field">
+    <label for="playerNameInput">Player name</label>
+    <input id="playerNameInput" type="text" maxlength="32" autocomplete="name" />
+  </div>
+  <div class="field">
+    <label for="tagInput">Tracked ArUco tag number</label>
+    <input id="tagInput" type="number" inputmode="numeric" min="0" max="105" step="1" />
+  </div>
+  <div class="field">
+    <label for="radiusRange">Active area radius</label>
+    <div class="radiusControls">
+      <input id="radiusRange" type="range" min="10" max="120" step="1" />
+      <input id="radiusInput" type="number" inputmode="numeric" min="10" max="120" step="1" />
+    </div>
+  </div>
+  <button id="showCalibrationTargetButton" type="button">Turn on target for calibration</button>
+  <button id="confirmDepositButton" type="button">Confirm robot at green center</button>
+  <button id="startButton" type="button" disabled>Start game</button>
+  <div id="setupStatus" aria-live="polite">Move the robot to the green center and confirm.</div>
+</section>
+
+<script>
+// This page lives in the tag-game prototype but the areas it drives belong to
+// the playfield-areas prototype, so playfield calls are absolute to its mount.
+// Machines are mounted at /s/<sandbox>/p/<slug>; keep the sandbox prefix.
+const SANDBOX_ROOT = location.pathname.replace(/\/p\/.*$/, '');
+const ABS = p => location.origin + SANDBOX_ROOT + p;
+const PLAYFIELD = p => ABS('/p/playfield-areas' + p);
+
+const ROUND_SECONDS = 90;
+const WORLD_SIZE = 24;
+const AREA_SIZE = 3.0;
+const CAMERA_POLL_MS = 180;
+const ROBOT_POLL_MS = 200;
+const COLOR_SAMPLE_W = 360;
+const MIN_COLOR_PIXELS = 24;
+const TRACKED_TAG_MAX = 105;
+const DEFAULT_ACTIVE_RADIUS_MM = 30;
+const MIN_ACTIVE_RADIUS_MM = 10;
+const MAX_ACTIVE_RADIUS_MM = 120;
+const TAG_VISIBLE_GRACE_MS = 2500;
+const TAG_BLOCKED_REVEAL_MS = 3000;
+const STATS_HISTORY_LIMIT = 24;
+const PLAYER_ARM_SIDE = 'purple';
+const CONFIG_KEY = 'tag-game-config';
+
+const timerEl = document.getElementById('timer');
+const targetCoordsEl = document.getElementById('targetCoords');
+const armCoordsEl = document.getElementById('armCoords');
+const distanceStatusEl = document.getElementById('distanceStatus');
+const suctionStatusEl = document.getElementById('suctionStatus');
+const playerStatusEl = document.getElementById('playerStatus');
+const statsStatusEl = document.getElementById('statsStatus');
+const webcamFeed = document.getElementById('webcamFeed');
+const activeAreaOverlay = document.getElementById('activeAreaOverlay');
+const restartButton = document.getElementById('restartButton');
+const setupEl = document.getElementById('setup');
+const playerNameInput = document.getElementById('playerNameInput');
+const tagInput = document.getElementById('tagInput');
+const radiusRange = document.getElementById('radiusRange');
+const radiusInput = document.getElementById('radiusInput');
+const showCalibrationTargetButton = document.getElementById('showCalibrationTargetButton');
+const confirmDepositButton = document.getElementById('confirmDepositButton');
+const startButton = document.getElementById('startButton');
+const setupStatus = document.getElementById('setupStatus');
+
+const PICKUP_AREA = {
+  name: 'pickup',
+  x: -6.4, y: 0, z: 0,
+  size: AREA_SIZE,
+  color: '#4f9dff',
+  glow: 1.9,
+  marker: 0,
+  show_area: true,
+  show_aruco: false,
+  show_links: false,
+};
+const DEPOSIT_AREA = {
+  name: 'deposit',
+  x: 5.4, y: 0, z: 0,
+  size: AREA_SIZE,
+  color: '#35d07f',
+  glow: 2.3,
+  marker: 0,
+  show_area: true,
+  show_aruco: false,
+  show_links: false,
+};
+
+const colorCanvas = document.createElement('canvas');
+const colorCtx = colorCanvas.getContext('2d', { willReadFrequently: true });
+
+let pickupArea = null;
+let depositArea = null;
+let startedAt = 0;
+let finishedAt = 0;
+let lastSentSize = AREA_SIZE;
+let gameState = 'setup';
+let selectedTag = null;
+let selectedTagSeenAt = 0;
+let latestRobotStatus = null;
+let hadSuctionDuringRun = false;
+let targetAreaVisible = false;
+let targetAreaCreating = false;
+let tagBlockedSince = 0;
+let setupPoll = 0;
+let roundPoll = 0;
+let frameHandle = 0;
+
+const config = loadConfig();
+let tagId = config.tagId;
+let activeRadiusMm = config.activeRadiusMm;
+let invertX = config.invertX;
+let invertY = config.invertY;
+let playerName = config.playerName;
+let statsByPlayer = config.statsByPlayer;
+let depositCenterPose = config.depositCenterPose;
+let depositOverlayCalibration = config.depositOverlayCalibration;
+let depositCenterConfirmed = !!depositCenterPose;
+
+function loadConfig() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
+    return {
+      tagId: clampInt(cfg.tagId, 0, TRACKED_TAG_MAX, 42),
+      activeRadiusMm: clampInt(cfg.activeRadiusMm, MIN_ACTIVE_RADIUS_MM, MAX_ACTIVE_RADIUS_MM, DEFAULT_ACTIVE_RADIUS_MM),
+      invertX: !!cfg.invertX,
+      invertY: !!cfg.invertY,
+      playerName: cleanPlayerName(cfg.playerName),
+      statsByPlayer: normalizeStatsMap(cfg.statsByPlayer),
+      depositCenterPose: poseFromStorage(cfg.depositCenterPose),
+      depositOverlayCalibration: overlayCalibrationFromStorage(cfg.depositOverlayCalibration),
+    };
+  } catch (_) {
+    return defaultConfig();
+  }
+}
+
+function defaultConfig() {
+  return {
+    tagId: 42,
+    activeRadiusMm: DEFAULT_ACTIVE_RADIUS_MM,
+    invertX: false,
+    invertY: false,
+    playerName: '',
+    statsByPlayer: {},
+    depositCenterPose: null,
+    depositOverlayCalibration: null,
+  };
+}
+
+function saveConfig() {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify({
+    tagId,
+    activeRadiusMm,
+    invertX,
+    invertY,
+    playerName,
+    statsByPlayer,
+    depositCenterPose: poseForStorage(depositCenterPose),
+    depositOverlayCalibration,
+  }));
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function cleanPlayerName(value) {
+  return String(value || '').trim().slice(0, 32);
+}
+
+function poseForStorage(pose) {
+  if (!pose) return null;
+  const stored = {
+    x: Number(pose.x),
+    y: Number(pose.y),
+    z: Number(pose.z),
+    r: Number(pose.r) || 0,
+  };
+  return [stored.x, stored.y, stored.z].every(Number.isFinite) ? stored : null;
+}
+
+function poseFromStorage(value) {
+  if (!value || typeof value !== 'object') return null;
+  return poseForStorage(value);
+}
+
+function overlayCalibrationFromStorage(value) {
+  if (!value || typeof value !== 'object') return null;
+  const stored = {
+    nx: Number(value.nx),
+    ny: Number(value.ny),
+    radius: Number(value.radius),
+  };
+  if (![stored.nx, stored.ny, stored.radius].every(Number.isFinite)) return null;
+  if (stored.radius <= 0) return null;
+  return {
+    nx: Math.max(0, Math.min(1, stored.nx)),
+    ny: Math.max(0, Math.min(1, stored.ny)),
+    radius: Math.max(0.001, Math.min(1, stored.radius)),
+  };
+}
+
+function emptyStats() {
+  return {
+    rounds: 0,
+    wins: 0,
+    losses: 0,
+    bestWinSeconds: null,
+    lastWinSeconds: null,
+    totalWinSeconds: 0,
+    history: [],
+    lastImprovementSeconds: null,
+    bestImprovementSeconds: null,
+  };
+}
+
+function finiteStoredNumber(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value))
+    ? Number(value)
+    : null;
+}
+
+function normalizeStats(raw) {
+  const stats = emptyStats();
+  if (!raw || typeof raw !== 'object') return stats;
+  stats.rounds = clampInt(raw.rounds, 0, 99999, 0);
+  stats.wins = clampInt(raw.wins, 0, 99999, 0);
+  stats.losses = clampInt(raw.losses, 0, 99999, 0);
+  stats.bestWinSeconds = finiteStoredNumber(raw.bestWinSeconds);
+  stats.lastWinSeconds = finiteStoredNumber(raw.lastWinSeconds);
+  stats.totalWinSeconds = Number.isFinite(Number(raw.totalWinSeconds)) ? Math.max(0, Number(raw.totalWinSeconds)) : 0;
+  stats.lastImprovementSeconds = finiteStoredNumber(raw.lastImprovementSeconds);
+  stats.bestImprovementSeconds = finiteStoredNumber(raw.bestImprovementSeconds);
+  if (!stats.wins) {
+    stats.bestWinSeconds = null;
+    stats.lastWinSeconds = null;
+    stats.totalWinSeconds = 0;
+    stats.lastImprovementSeconds = null;
+    stats.bestImprovementSeconds = null;
+  }
+  if (Array.isArray(raw.history)) {
+    stats.history = raw.history.slice(-STATS_HISTORY_LIMIT).map(item => ({
+      state: item && item.state === 'won' ? 'won' : 'ended',
+      seconds: Number.isFinite(Number(item && item.seconds)) ? Number(item.seconds) : ROUND_SECONDS,
+      at: Number.isFinite(Number(item && item.at)) ? Number(item.at) : Date.now(),
+    }));
+  }
+  return stats;
+}
+
+function normalizeStatsMap(raw) {
+  const map = {};
+  if (!raw || typeof raw !== 'object') return map;
+  for (const [name, stats] of Object.entries(raw)) {
+    const cleanName = cleanPlayerName(name);
+    if (cleanName) map[cleanName] = normalizeStats(stats);
+  }
+  return map;
+}
+
+async function request(path, opts = {}) {
+  const res = await fetch(PLAYFIELD(path), opts);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function crossRequest(path, opts = {}) {
+  const res = await fetch(ABS(path), opts);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function cameraTags() {
+  const data = await crossRequest('/p/webcam/api/tags');
+  return Array.isArray(data.tags) ? data.tags : [];
+}
+
+async function robotStatus() {
+  try {
+    const relay = await crossRequest('/p/dobot-mg400-relay/api/state');
+    const arm = relayArmStatus(relay);
+    if (arm) {
+      latestRobotStatus = arm;
+      return latestRobotStatus;
+    }
+  } catch (_) {}
+  latestRobotStatus = await crossRequest('/p/cartesian-xyz-test/api/status');
+  return latestRobotStatus;
+}
+
+function relayArmStatus(relay) {
+  const arms = relay && relay.arms || {};
+  const preferred = arms[PLAYER_ARM_SIDE];
+  const preferredPose = robotPoseFromArm(preferred);
+  if (preferred && (preferred.connected || preferredPose || preferred.target)) {
+    return { ...preferred, side: PLAYER_ARM_SIDE, source: 'relay' };
+  }
+  for (const side of ['purple', 'green']) {
+    const arm = arms[side];
+    if (arm && (arm.connected || robotPoseFromArm(arm) || arm.target)) {
+      return { ...arm, side, source: 'relay' };
+    }
+  }
+  return preferred ? { ...preferred, side: PLAYER_ARM_SIDE, source: 'relay' } : null;
+}
+
+function robotPoseFromArm(arm) {
+  const pose = poseFromArray(arm && arm.pose);
+  if (pose && poseMagnitude(pose) > 1) return pose;
+  return poseFromArray(arm && arm.target);
+}
+
+function trackedTag(tags) {
+  return tags.find(t => Number(t.id) === Number(tagId)) || null;
+}
+
+function poseFromArray(values) {
+  if (!Array.isArray(values) || values.length < 3) return null;
+  const nums = values.slice(0, 4).map(Number);
+  if (!nums.slice(0, 3).every(Number.isFinite)) return null;
+  return {
+    x: nums[0],
+    y: nums[1],
+    z: nums[2],
+    r: Number.isFinite(nums[3]) ? nums[3] : 0,
+  };
+}
+
+function poseMagnitude(pose) {
+  return pose ? Math.hypot(pose.x, pose.y, pose.z) : 0;
+}
+
+function robotPoseUsable(status, pose) {
+  if (!pose) return false;
+  if (poseMagnitude(pose) <= 1) return false;
+  if (status && status.connected !== false) return true;
+  if (status && (status.feedback_ok || Number(status.last_feedback) > 0)) return true;
+  return true;
+}
+
+function robotPose(status) {
+  const actual = poseFromArray(status && status.pose);
+  const target = poseFromArray(status && status.target);
+  if (robotPoseUsable(status, actual)) return actual;
+  if (target && poseMagnitude(target) > 1) return target;
+  return actual || target;
+}
+
+function robotPoseSource(status) {
+  const actual = poseFromArray(status && status.pose);
+  const target = poseFromArray(status && status.target);
+  const prefix = status && status.side ? `${status.side} ` : '';
+  if (robotPoseUsable(status, actual)) return `${prefix}feedback`;
+  if (target && poseMagnitude(target) > 1) return `${prefix}target`;
+  if (actual || target) return 'blank';
+  return 'none';
+}
+
+function formatPose(pose) {
+  if (!pose) return 'not saved';
+  return `X ${pose.x.toFixed(0)}  Y ${pose.y.toFixed(0)}  Z ${pose.z.toFixed(0)}`;
+}
+
+function pumpLabel(status) {
+  const mode = String(status && status.pump_mode || '').toLowerCase();
+  if (mode === 'suck') return 'on';
+  if (mode === 'off' || mode === 'blow') return 'released';
+  return mode || 'waiting';
+}
+
+function updateArmTelemetry(status = latestRobotStatus) {
+  const pose = robotPose(status);
+  const distance = poseDistanceMm(pose, depositCenterPose);
+  const inside = Number.isFinite(distance) && distance <= activeRadiusMm;
+  targetCoordsEl.textContent = formatPose(depositCenterPose);
+  armCoordsEl.textContent = pose ? `${formatPose(pose)} (${robotPoseSource(status)})` : 'waiting';
+  distanceStatusEl.textContent = Number.isFinite(distance)
+    ? `${distance.toFixed(0)} / ${activeRadiusMm.toFixed(0)} mm`
+    : `-- / ${activeRadiusMm.toFixed(0)} mm`;
+  distanceStatusEl.classList.toggle('win', inside);
+  suctionStatusEl.textContent = inside
+    ? `${pumpLabel(status)}${suctionReleased(status) ? ' - win ready' : ' - release to win'}`
+    : pumpLabel(status);
+  suctionStatusEl.classList.toggle('win', inside && suctionReleased(status));
+}
+
+function currentPlayerStats() {
+  if (!playerName) return emptyStats();
+  if (!statsByPlayer[playerName]) statsByPlayer[playerName] = emptyStats();
+  return statsByPlayer[playerName];
+}
+
+function secondsText(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value))
+    ? `${Number(value).toFixed(1)}s`
+    : '--';
+}
+
+function improvementText(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'no past win';
+  if (Math.abs(value) < 0.05) return 'same pace';
+  return value > 0 ? `${secondsText(value)} faster` : `${secondsText(Math.abs(value))} slower`;
+}
+
+function updateStatsDisplay() {
+  playerStatusEl.textContent = playerName || 'not set';
+  if (!playerName) {
+    statsStatusEl.textContent = 'enter player name';
+    return;
+  }
+  const stats = currentPlayerStats();
+  const averageWin = stats.wins ? stats.totalWinSeconds / stats.wins : null;
+  statsStatusEl.textContent = [
+    `${stats.rounds} rounds`,
+    `${stats.wins}W ${stats.losses}L`,
+    `best ${secondsText(stats.bestWinSeconds)}`,
+    `avg ${secondsText(averageWin)}`,
+    `last ${improvementText(stats.lastImprovementSeconds)}`,
+    `best gain ${improvementText(stats.bestImprovementSeconds)}`,
+  ].join(' | ');
+}
+
+function recordRoundResult(state, elapsed) {
+  if (!playerName) return;
+  const stats = currentPlayerStats();
+  const priorLastWin = stats.lastWinSeconds;
+  const priorBestWin = stats.bestWinSeconds;
+  stats.rounds += 1;
+  if (state === 'won') {
+    stats.wins += 1;
+    stats.totalWinSeconds += elapsed;
+    stats.lastImprovementSeconds = Number.isFinite(priorLastWin) ? priorLastWin - elapsed : null;
+    stats.bestImprovementSeconds = Number.isFinite(priorBestWin) ? priorBestWin - elapsed : null;
+    stats.lastWinSeconds = elapsed;
+    stats.bestWinSeconds = Number.isFinite(priorBestWin) ? Math.min(priorBestWin, elapsed) : elapsed;
+  } else {
+    stats.losses += 1;
+  }
+  stats.history.push({ state, seconds: elapsed, at: Date.now() });
+  stats.history = stats.history.slice(-STATS_HISTORY_LIMIT);
+  saveConfig();
+  updateStatsDisplay();
+}
+
+function updateSelectedTag(tag) {
+  if (tag) {
+    selectedTag = tag;
+    selectedTagSeenAt = performance.now();
+  } else if (performance.now() - selectedTagSeenAt > TAG_VISIBLE_GRACE_MS) {
+    selectedTag = null;
+  }
+}
+
+function tagReady() {
+  return !!selectedTag && performance.now() - selectedTagSeenAt <= TAG_VISIBLE_GRACE_MS;
+}
+
+function setStartEnabled() {
+  startButton.disabled = !(depositCenterConfirmed && playerName);
+}
+
+function startWebcamStream() {
+  webcamFeed.src = ABS('/p/webcam/api/stream') + '?t=' + Date.now();
+}
+webcamFeed.onerror = () => setTimeout(startWebcamStream, 1000);
+
+function patchArea(id, body) {
+  return request(`/api/areas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function deleteArea(id) {
+  return request(`/api/areas/${id}`, { method: 'DELETE' }).catch(() => null);
+}
+
+async function clearPlayfieldAreas() {
+  const state = await request('/api/state');
+  await Promise.all((state.areas || []).map(area => deleteArea(area.id)));
+  pickupArea = null;
+  depositArea = null;
+  targetAreaVisible = false;
+  targetAreaCreating = false;
+  tagBlockedSince = 0;
+  updateActiveOverlay();
+}
+
+async function createGameArea(template) {
+  const created = await request('/api/areas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(template),
+  });
+  return created.area;
+}
+
+async function showCalibrationTarget() {
+  showCalibrationTargetButton.disabled = true;
+  setupStatus.textContent = 'Showing green target for calibration.';
+  try {
+    await clearPlayfieldAreas();
+    depositArea = await createGameArea(DEPOSIT_AREA);
+    targetAreaVisible = false;
+    updateActiveOverlay();
+    setupStatus.textContent = 'Move the robot tip to the green center and confirm.';
+  } catch (_) {
+    setupStatus.textContent = 'Could not show calibration target.';
+  } finally {
+    showCalibrationTargetButton.disabled = false;
+  }
+}
+
+async function createPickupAreaForRound() {
+  pickupArea = await createGameArea(PICKUP_AREA);
+  depositArea = null;
+  targetAreaVisible = false;
+  updateActiveOverlay();
+}
+
+async function createDepositAreaForRound() {
+  if (depositArea) return;
+  depositArea = await createGameArea(DEPOSIT_AREA);
+  lastSentSize = AREA_SIZE;
+}
+
+function connectPlayfieldEvents() {
+  const es = new EventSource(PLAYFIELD('/api/events'));
+  es.onmessage = e => {
+    try {
+      const data = JSON.parse(e.data);
+      const areas = data.areas || [];
+      const pickup = areas.find(area => area.name === PICKUP_AREA.name);
+      const deposit = areas.find(area => area.name === DEPOSIT_AREA.name);
+      pickupArea = pickup || null;
+      depositArea = deposit || null;
+    } catch (_) {}
+  };
+}
+
+function elapsedSeconds(now = performance.now()) {
+  const end = finishedAt || now;
+  return Math.min(ROUND_SECONDS, Math.max(0, (end - startedAt) / 1000));
+}
+
+function sendDepositSize(size, force = false) {
+  if (!depositArea) return;
+  if (!force && Math.abs(size - lastSentSize) < 0.08) return;
+  lastSentSize = size;
+  patchArea(depositArea.id, { size }).catch(() => {});
+}
+
+function imageSize() {
+  return {
+    width: webcamFeed.naturalWidth || 1280,
+    height: webcamFeed.naturalHeight || 720,
+  };
+}
+
+function cameraRect() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const { width: iw, height: ih } = imageSize();
+  const scale = Math.min(vw / iw, vh / ih);
+  const width = iw * scale;
+  const height = ih * scale;
+  return {
+    left: (vw - width) / 2,
+    top: (vh - height) / 2,
+    width,
+    height,
+  };
+}
+
+function viewportPointFromImagePoint(x, y) {
+  const frame = cameraRect();
+  const { width: iw, height: ih } = imageSize();
+  return {
+    x: frame.left + (x / iw) * frame.width,
+    y: frame.top + (y / ih) * frame.height,
+  };
+}
+
+function cameraPointFromWorld(x, z) {
+  let nx = (x + WORLD_SIZE / 2) / WORLD_SIZE;
+  let ny = (z + WORLD_SIZE / 2) / WORLD_SIZE;
+  if (invertX) nx = 1 - nx;
+  if (invertY) ny = 1 - ny;
+  return { nx, ny };
+}
+
+function projectedDepositBox() {
+  if (!depositArea) return null;
+  const frame = cameraRect();
+  const { nx, ny } = cameraPointFromWorld(depositArea.x, depositArea.z);
+  const width = frame.width * depositArea.size / WORLD_SIZE;
+  const height = frame.height * depositArea.size / WORLD_SIZE;
+  const cx = frame.left + nx * frame.width;
+  const cy = frame.top + ny * frame.height;
+  return {
+    left: cx - width / 2,
+    top: cy - height / 2,
+    right: cx + width / 2,
+    bottom: cy + height / 2,
+  };
+}
+
+function viewportBoxFromImageBox(box) {
+  const frame = cameraRect();
+  const { width: iw, height: ih } = imageSize();
+  return {
+    left: frame.left + (box.left / iw) * frame.width,
+    top: frame.top + (box.top / ih) * frame.height,
+    right: frame.left + (box.right / iw) * frame.width,
+    bottom: frame.top + (box.bottom / ih) * frame.height,
+  };
+}
+
+function largestComponent(mask, width, height) {
+  const seen = new Uint8Array(mask.length);
+  let best = null;
+  const stack = [];
+  for (let i = 0; i < mask.length; i += 1) {
+    if (!mask[i] || seen[i]) continue;
+    let count = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    seen[i] = 1;
+    stack.push(i);
+    while (stack.length) {
+      const idx = stack.pop();
+      const x = idx % width;
+      const y = (idx - x) / width;
+      count += 1;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+
+      const left = idx - 1;
+      const right = idx + 1;
+      const up = idx - width;
+      const down = idx + width;
+      if (x > 0 && mask[left] && !seen[left]) { seen[left] = 1; stack.push(left); }
+      if (x < width - 1 && mask[right] && !seen[right]) { seen[right] = 1; stack.push(right); }
+      if (y > 0 && mask[up] && !seen[up]) { seen[up] = 1; stack.push(up); }
+      if (y < height - 1 && mask[down] && !seen[down]) { seen[down] = 1; stack.push(down); }
+    }
+    if (count >= MIN_COLOR_PIXELS && (!best || count > best.count)) {
+      best = { count, minX, minY, maxX, maxY };
+    }
+  }
+  return best;
+}
+
+function detectGreenTargetBoxOnce() {
+  if (!colorCtx || !webcamFeed.complete || !webcamFeed.naturalWidth || !webcamFeed.naturalHeight) return null;
+  const { width: imageW, height: imageH } = imageSize();
+  const sampleW = COLOR_SAMPLE_W;
+  const sampleH = Math.max(1, Math.round(sampleW * imageH / imageW));
+  colorCanvas.width = sampleW;
+  colorCanvas.height = sampleH;
+  try {
+    colorCtx.drawImage(webcamFeed, 0, 0, sampleW, sampleH);
+    const pixels = colorCtx.getImageData(0, 0, sampleW, sampleH).data;
+    const mask = new Uint8Array(sampleW * sampleH);
+    for (let p = 0, i = 0; p < pixels.length; p += 4, i += 1) {
+      const r = pixels[p];
+      const g = pixels[p + 1];
+      const b = pixels[p + 2];
+      mask[i] = g > 75 && g > r * 1.18 && g > b * 1.02 ? 1 : 0;
+    }
+    const component = largestComponent(mask, sampleW, sampleH);
+    if (!component) return null;
+    const pad = 2;
+    return viewportBoxFromImageBox({
+      left: Math.max(0, (component.minX - pad) * imageW / sampleW),
+      top: Math.max(0, (component.minY - pad) * imageH / sampleH),
+      right: Math.min(imageW, (component.maxX + 1 + pad) * imageW / sampleW),
+      bottom: Math.min(imageH, (component.maxY + 1 + pad) * imageH / sampleH),
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function calibrationFromBox(box) {
+  if (!box) return null;
+  const frame = cameraRect();
+  if (!frame.width || !frame.height) return null;
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.top + box.bottom) / 2;
+  const baseRadius = Math.max(8, Math.min(box.right - box.left, box.bottom - box.top) / 2);
+  return {
+    nx: (cx - frame.left) / frame.width,
+    ny: (cy - frame.top) / frame.height,
+    radius: baseRadius / Math.min(frame.width, frame.height),
+  };
+}
+
+function calibratedDepositBox() {
+  if (!depositOverlayCalibration) return null;
+  const frame = cameraRect();
+  const baseRadius = Math.max(8, Math.min(frame.width, frame.height) * depositOverlayCalibration.radius);
+  const cx = frame.left + depositOverlayCalibration.nx * frame.width;
+  const cy = frame.top + depositOverlayCalibration.ny * frame.height;
+  return {
+    left: cx - baseRadius,
+    top: cy - baseRadius,
+    right: cx + baseRadius,
+    bottom: cy + baseRadius,
+  };
+}
+
+function activeBaseBox() {
+  return calibratedDepositBox() || projectedDepositBox();
+}
+
+function shouldShowActiveOverlay() {
+  return !!depositArea && targetAreaVisible && (gameState === 'setup' || gameState === 'running');
+}
+
+function updateActiveOverlay() {
+  if (!shouldShowActiveOverlay()) {
+    activeAreaOverlay.style.display = 'none';
+    return;
+  }
+  const box = activeBaseBox();
+  if (!box) {
+    activeAreaOverlay.style.display = 'none';
+    return;
+  }
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.top + box.bottom) / 2;
+  const baseRadius = Math.max(8, Math.min(box.right - box.left, box.bottom - box.top) / 2);
+  const radiusPx = baseRadius * activeRadiusMm / DEFAULT_ACTIVE_RADIUS_MM;
+  activeAreaOverlay.style.display = 'block';
+  activeAreaOverlay.style.left = `${cx - radiusPx}px`;
+  activeAreaOverlay.style.top = `${cy - radiusPx}px`;
+  activeAreaOverlay.style.width = `${radiusPx * 2}px`;
+  activeAreaOverlay.style.height = `${radiusPx * 2}px`;
+}
+
+async function updateTargetReveal(tag) {
+  if (gameState !== 'running' || targetAreaVisible || targetAreaCreating) return;
+  if (tag) {
+    tagBlockedSince = 0;
+    return;
+  }
+  const now = performance.now();
+  if (!tagBlockedSince) tagBlockedSince = now;
+  if (now - tagBlockedSince >= TAG_BLOCKED_REVEAL_MS) {
+    targetAreaCreating = true;
+    try {
+      await createDepositAreaForRound();
+      targetAreaVisible = true;
+      updateActiveOverlay();
+    } finally {
+      targetAreaCreating = false;
+    }
+  }
+}
+
+function tagPoints(tag) {
+  if (!tag || !Number.isFinite(Number(tag.x)) || !Number.isFinite(Number(tag.y))) return [];
+  const points = [[Number(tag.x), Number(tag.y)]];
+  if (Array.isArray(tag.corners)) {
+    for (const corner of tag.corners) {
+      if (Array.isArray(corner) && corner.length >= 2) {
+        points.push([Number(corner[0]), Number(corner[1])]);
+      }
+    }
+  }
+  return points;
+}
+
+function tagInActiveOverlay(tag) {
+  const rect = activeAreaOverlay.getBoundingClientRect();
+  if (!rect.width || !rect.height) return false;
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const radius = Math.max(rect.width, rect.height) / 2 + 18;
+  return tagPoints(tag).some(([x, y]) => {
+    const p = viewportPointFromImagePoint(x, y);
+    return Math.hypot(p.x - cx, p.y - cy) <= radius;
+  });
+}
+
+function poseDistanceMm(pose, center) {
+  if (!pose || !center) return Infinity;
+  const dx = Number(pose.x) - Number(center.x);
+  const dy = Number(pose.y) - Number(center.y);
+  const dz = Number(pose.z) - Number(center.z);
+  if (![dx, dy, dz].every(Number.isFinite)) return Infinity;
+  return Math.hypot(dx, dy, dz);
+}
+
+function robotAtDeposit(status) {
+  return poseDistanceMm(robotPose(status), depositCenterPose) <= activeRadiusMm;
+}
+
+function suctionReleased(status) {
+  const mode = String(status && status.pump_mode || '').toLowerCase();
+  return hadSuctionDuringRun && (mode === 'off' || mode === 'blow');
+}
+
+function syncRadiusInputs(value) {
+  activeRadiusMm = clampInt(value, MIN_ACTIVE_RADIUS_MM, MAX_ACTIVE_RADIUS_MM, activeRadiusMm);
+  radiusRange.value = String(activeRadiusMm);
+  radiusInput.value = String(activeRadiusMm);
+  saveConfig();
+  updateActiveOverlay();
+  updateArmTelemetry();
+  setStartEnabled();
+}
+
+function readConfiguredTagId(commit = false) {
+  if (tagInput.value === '') return false;
+  tagId = clampInt(tagInput.value, 0, TRACKED_TAG_MAX, tagId);
+  if (commit) tagInput.value = String(tagId);
+  saveConfig();
+  return true;
+}
+
+function commitConfiguredTagId() {
+  if (tagInput.value === '') tagInput.value = String(tagId);
+  tagId = clampInt(tagInput.value, 0, TRACKED_TAG_MAX, tagId);
+  tagInput.value = String(tagId);
+  saveConfig();
+}
+
+function updateSetupStatus(tag) {
+  updateSelectedTag(tag);
+  setStartEnabled();
+  if (!playerName) {
+    setupStatus.textContent = 'Enter the player name.';
+  } else if (!depositCenterConfirmed && tagReady()) {
+    setupStatus.textContent = `Tag ${tagId} visible. Turn on the target if calibration is needed.`;
+  } else if (!depositCenterConfirmed) {
+    setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
+  } else if (!depositCenterPose && tagReady()) {
+    setupStatus.textContent = `Center confirmed. Tag ${tagId} is visible. Press Start game.`;
+  } else if (!depositCenterPose) {
+    setupStatus.textContent = `Center confirmed. Press Start game to read the robot position.`;
+  } else if (tagReady()) {
+    setupStatus.textContent = `Deposit center confirmed. Tag ${tagId} is visible. Press Start game.`;
+  } else {
+    setupStatus.textContent = `Deposit center confirmed. Press Start game to check tag ${tagId}.`;
+  }
+}
+
+async function confirmDepositCenter() {
+  confirmDepositButton.disabled = true;
+  depositCenterConfirmed = true;
+  const detectedGreenBox = detectGreenTargetBoxOnce();
+  const visualCenterBox = detectedGreenBox || projectedDepositBox() || calibratedDepositBox();
+  depositOverlayCalibration = overlayCalibrationFromStorage(calibrationFromBox(visualCenterBox));
+  targetAreaVisible = !!depositArea && !!depositOverlayCalibration;
+  updateActiveOverlay();
+  saveConfig();
+  setStartEnabled();
+  setupStatus.textContent = detectedGreenBox
+    ? 'Center confirmed. Active drop-off circle saved.'
+    : 'Center confirmed. Circle used fallback position.';
+  try {
+    const status = await robotStatus();
+    const pose = robotPose(status);
+    if (!robotPoseUsable(status, pose)) {
+      depositCenterPose = null;
+      setupStatus.textContent = `Center confirmed. Robot position source: ${robotPoseSource(status)}.`;
+      saveConfig();
+      updateArmTelemetry(status);
+      return;
+    }
+    depositCenterPose = pose;
+    depositCenterConfirmed = true;
+    saveConfig();
+    updateArmTelemetry(status);
+    try {
+      const tag = trackedTag(await cameraTags());
+      updateSetupStatus(tag);
+    } catch (_) {
+      updateSetupStatus(null);
+    }
+  } catch (_) {
+    depositCenterPose = null;
+    saveConfig();
+    setupStatus.textContent = 'Center confirmed. Press Start game.';
+    updateArmTelemetry();
+  } finally {
+    confirmDepositButton.disabled = false;
+    setStartEnabled();
+  }
+}
+
+async function pollSetup() {
+  if (gameState !== 'setup') return;
+  try {
+    updateActiveOverlay();
+    const tag = trackedTag(await cameraTags());
+    updateSetupStatus(tag);
+  } catch (_) {
+    updateSelectedTag(null);
+    setStartEnabled();
+    setupStatus.textContent = 'Waiting for webcam tag tracking.';
+  }
+}
+
+async function pollRound() {
+  if (gameState !== 'running' || finishedAt) return;
+  try {
+    const [status, tags] = await Promise.all([robotStatus(), cameraTags()]);
+    const tag = trackedTag(tags);
+    await updateTargetReveal(tag);
+    updateArmTelemetry(status);
+    if (String(status.pump_mode || '').toLowerCase() === 'suck') {
+      hadSuctionDuringRun = true;
+    }
+    if (!targetAreaVisible) return;
+    if (!robotAtDeposit(status) || !suctionReleased(status)) return;
+
+    const tagVisibleOutsideActiveArea = tag && !tagInActiveOverlay(tag);
+    if (!tagVisibleOutsideActiveArea) finishRound('won');
+  } catch (_) {}
+}
+
+function finishRound(state) {
+  gameState = state;
+  finishedAt = performance.now();
+  clearInterval(roundPoll);
+  sendDepositSize(AREA_SIZE, true);
+  recordRoundResult(state, elapsedSeconds());
+  if (state === 'won') timerEl.textContent = 'WIN';
+}
+
+async function resetRound() {
+  clearInterval(setupPoll);
+  clearInterval(roundPoll);
+  gameState = 'setup';
+  selectedTag = null;
+  selectedTagSeenAt = 0;
+  hadSuctionDuringRun = false;
+  targetAreaVisible = false;
+  targetAreaCreating = false;
+  tagBlockedSince = 0;
+  startedAt = 0;
+  finishedAt = 0;
+  timerEl.textContent = String(ROUND_SECONDS);
+  setupEl.classList.remove('hidden');
+  updateArmTelemetry();
+  updateStatsDisplay();
+  setStartEnabled();
+  setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
+  await clearPlayfieldAreas();
+  updateActiveOverlay();
+  setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);
+  await pollSetup();
+}
+
+function tick() {
+  updateActiveOverlay();
+  updateArmTelemetry();
+  if (gameState === 'won') {
+    frameHandle = requestAnimationFrame(tick);
+    return;
+  }
+  if (gameState !== 'running') {
+    frameHandle = requestAnimationFrame(tick);
+    return;
+  }
+
+  const elapsed = elapsedSeconds();
+  const remaining = Math.max(0, Math.ceil(ROUND_SECONDS - elapsed));
+  timerEl.textContent = String(remaining);
+  if (!finishedAt && elapsed >= ROUND_SECONDS) finishRound('ended');
+  frameHandle = requestAnimationFrame(tick);
+}
+
+async function startRound() {
+  if (gameState !== 'setup') return;
+  playerName = cleanPlayerName(playerNameInput.value);
+  playerNameInput.value = playerName;
+  saveConfig();
+  updateStatsDisplay();
+  if (!playerName) {
+    setStartEnabled();
+    setupStatus.textContent = 'Enter the player name.';
+    return;
+  }
+  commitConfiguredTagId();
+  startButton.disabled = true;
+  if (!depositCenterConfirmed) {
+    setStartEnabled();
+    return;
+  }
+  if (!depositCenterPose) {
+    robotStatus().then(status => {
+      const pose = robotPose(status);
+      if (robotPoseUsable(status, pose)) {
+        depositCenterPose = pose;
+        depositCenterConfirmed = true;
+        saveConfig();
+      }
+      updateArmTelemetry(status);
+    }).catch(() => {});
+  }
+  cameraTags().then(tags => updateSelectedTag(trackedTag(tags))).catch(() => {});
+  setupEl.classList.add('hidden');
+  await clearPlayfieldAreas();
+  await createPickupAreaForRound();
+  lastSentSize = AREA_SIZE;
+  targetAreaVisible = false;
+  targetAreaCreating = false;
+  tagBlockedSince = 0;
+  updateActiveOverlay();
+  startedAt = performance.now();
+  finishedAt = 0;
+  hadSuctionDuringRun = String(latestRobotStatus && latestRobotStatus.pump_mode || '').toLowerCase() === 'suck';
+  updateArmTelemetry();
+  clearInterval(setupPoll);
+  gameState = 'running';
+  timerEl.textContent = String(ROUND_SECONDS);
+  roundPoll = setInterval(pollRound, ROBOT_POLL_MS);
+}
+
+async function init() {
+  startWebcamStream();
+  connectPlayfieldEvents();
+  await clearPlayfieldAreas();
+  playerNameInput.value = playerName;
+  tagInput.value = String(tagId);
+  syncRadiusInputs(activeRadiusMm);
+  updateArmTelemetry();
+  updateStatsDisplay();
+
+  playerNameInput.addEventListener('input', () => {
+    playerName = cleanPlayerName(playerNameInput.value);
+    saveConfig();
+    updateStatsDisplay();
+    setStartEnabled();
+    updateSetupStatus(selectedTag);
+  });
+  tagInput.addEventListener('input', () => {
+    if (!readConfiguredTagId()) {
+      selectedTag = null;
+      selectedTagSeenAt = 0;
+      setStartEnabled();
+      setupStatus.textContent = 'Enter the tracked tag number.';
+      return;
+    }
+    selectedTag = null;
+    selectedTagSeenAt = 0;
+    setStartEnabled();
+    setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
+  });
+  tagInput.addEventListener('change', commitConfiguredTagId);
+  radiusRange.addEventListener('input', () => syncRadiusInputs(radiusRange.value));
+  radiusInput.addEventListener('input', () => syncRadiusInputs(radiusInput.value));
+  showCalibrationTargetButton.addEventListener('click', showCalibrationTarget);
+  confirmDepositButton.addEventListener('click', confirmDepositCenter);
+  startButton.addEventListener('click', startRound);
+  restartButton.addEventListener('click', resetRound);
+
+  updateActiveOverlay();
+  setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);
+  await pollSetup();
+  tick();
+}
+
+init();
+</script>
+</body>
+</html>
