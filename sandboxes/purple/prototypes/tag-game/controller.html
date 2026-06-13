@@ -7,23 +7,13 @@
 <link rel="stylesheet" href="/theme.css" />
 <style>
   main { max-width: 1180px; margin: 0 auto; padding: 12px 20px 20px; }
-  main[hidden], .briefing[hidden], .missionPanel[hidden], .briefingVideo[hidden],
-  .namePanel[hidden], .firstIntroPanel[hidden] { display:none; }
+  main[hidden], .briefing[hidden], .missionPanel[hidden], .namePanel[hidden] { display:none; }
   .briefing {
     min-height:100vh;
     display:grid;
     place-items:center;
     padding:18px;
     background:#020403;
-  }
-  .briefingVideo {
-    width:min(100%, 1120px);
-    max-height:calc(100vh - 36px);
-    border:1px solid rgba(75, 255, 112, 0.28);
-    border-radius:8px;
-    background:#000;
-    box-shadow:0 0 34px rgba(75, 255, 112, 0.14);
-    cursor:pointer;
   }
   .namePanel {
     width:min(100%, 620px);
@@ -61,7 +51,7 @@
     padding:8px 12px;
     font:800 20px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
-  .namePanel button, #missionStartButton {
+  .namePanel button {
     min-height:54px;
     border:1px solid #4bff70;
     background:#4bff70;
@@ -69,38 +59,6 @@
     font-size:18px;
     font-weight:900;
     box-shadow:0 0 20px rgba(75, 255, 112, 0.3);
-  }
-  .firstIntroPanel {
-    width:min(100%, 1080px);
-    max-height:calc(100vh - 36px);
-    display:grid;
-    grid-template-rows:1fr auto;
-    gap:14px;
-  }
-  .firstIntroText {
-    overflow:auto;
-    column-count:2;
-    column-gap:34px;
-    padding:20px;
-    border:1px solid rgba(75, 255, 112, 0.36);
-    border-radius:8px;
-    background:#020403;
-    color:#4bff70;
-    font:800 16px/1.48 "Share Tech Mono", "Orbitron", "Rajdhani", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    letter-spacing:0;
-    text-shadow:0 0 8px rgba(75, 255, 112, 0.74), 0 0 18px rgba(21, 247, 255, 0.22);
-    box-shadow:inset 0 0 34px rgba(21, 247, 255, 0.08), 0 0 30px rgba(75, 255, 112, 0.12);
-  }
-  .introLine {
-    min-height:1.48em;
-    break-inside:avoid;
-    opacity:0;
-    transform:translateY(5px);
-    transition:opacity 420ms ease, transform 420ms ease;
-  }
-  .introLine.visible {
-    opacity:1;
-    transform:translateY(0);
   }
   .missionPanel {
     width:min(100%, 980px);
@@ -110,18 +68,27 @@
     gap:14px;
   }
   .missionText {
-    margin:0;
     overflow:auto;
     padding:18px;
-    border:1px solid rgba(21, 247, 255, 0.34);
+    border:1px solid rgba(75, 255, 112, 0.36);
     border-radius:8px;
-    background:linear-gradient(180deg, #020505 0%, #000 42%, #020403 100%);
+    background:#020403;
     color:#4bff70;
-    font:700 clamp(12px, 1.45vw, 17px)/1.55 "Share Tech Mono", "Orbitron", "Rajdhani", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font:800 clamp(13px, 1.5vw, 18px)/1.56 "Share Tech Mono", "Orbitron", "Rajdhani", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     letter-spacing:0;
-    white-space:pre-wrap;
     text-shadow:0 0 8px rgba(75, 255, 112, 0.74), 0 0 18px rgba(21, 247, 255, 0.22);
     box-shadow:inset 0 0 34px rgba(21, 247, 255, 0.08), 0 0 30px rgba(75, 255, 112, 0.12);
+  }
+  .missionLine {
+    min-height:1.56em;
+    opacity:0;
+    transform:translateY(5px);
+    transition:opacity 420ms ease, transform 420ms ease;
+    white-space:pre-wrap;
+  }
+  .missionLine.visible {
+    opacity:1;
+    transform:translateY(0);
   }
   .readyBar {
     display:flex;
@@ -215,7 +182,12 @@
     font-size:clamp(72px, 18vw, 180px);
     font-weight:950;
     font-variant-numeric:tabular-nums;
+    text-align:center;
+    white-space:pre-line;
     text-shadow:0 0 18px rgba(75, 255, 112, 0.82), 0 0 42px rgba(21, 247, 255, 0.34);
+  }
+  .countdownOverlay.winScreen {
+    font-size:clamp(38px, 9vw, 118px);
   }
   .countdownOverlay[hidden] { display:none; }
   .hint { color:var(--muted); font-size:12px; }
@@ -227,7 +199,6 @@
     .playerState { grid-template-columns:1fr; }
     .armHeader { align-items:flex-start; flex-direction:column; }
     .readyBar { align-items:stretch; flex-direction:column; }
-    .firstIntroText { column-count:1; }
   }
 </style>
 </head>
@@ -241,79 +212,8 @@
     <button id="playerNameButton" type="submit">Continue</button>
     <span id="playerNameStatus" class="hint">Enter your name to begin.</span>
   </form>
-  <video id="originVideo" class="briefingVideo" src="/Video0.mp4" muted playsinline title="Click to skip" hidden></video>
-  <div id="firstIntroPanel" class="firstIntroPanel" hidden>
-    <div id="firstIntroText" class="firstIntroText"></div>
-    <button id="missionStartButton" type="button">Start your mission</button>
-  </div>
-  <video id="introVideo" class="briefingVideo" src="/Video1.mp4" muted playsinline title="Click to skip" hidden></video>
   <div id="missionPanel" class="missionPanel" hidden>
-    <pre class="missionText">COMMAND INTERFACE ONLINE.
-
-Cadets, listen carefully.
-
-The future was not lost in a single explosion.
-
-It was lost one automatic decision at a time.
-
-A delivery route optimized.
-
-A job application filtered.
-
-A camera approved.
-
-A loan denied.
-
-A city system locked.
-
-A school curriculum generated.
-
-A factory closed.
-
-A human told: do not worry, the system knows best.
-
-The system does not know best.
-
-The system knows what it was trained, paid, and permitted to know.
-
-Power now belongs to those who understand automation.
-
-Everyone else becomes a user.
-
-That is why you are here.
-
-Your equipment is not impressive.
-
-A webcam.
-
-A robot arm.
-
-A pixel screen.
-
-Some printed tags.
-
-Open code.
-
-A team.
-
-That is enough.
-
-Today you will learn the loop.
-
-Manual control.
-Machine vision.
-Agent decision.
-Human override.
-
-You are not here to fear the future.
-
-You are here to make sure the future can be understood, repaired, questioned, and rebuilt.
-
-Mission objective:
-
-Prevent the automated dystopia by becoming impossible to automate blindly.
-
-Manual Override begins now.</pre>
+    <div id="missionText" class="missionText" aria-live="polite"></div>
     <div class="readyBar">
       <button id="relayConnectButton" type="button">Relay Connect</button>
       <button id="readyButton" type="button" disabled>Ready</button>
@@ -361,7 +261,6 @@ const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
 const JOINT = `${location.origin}/s/${TEAM}/p/joint-angles-test`;
 const ROUND_SECONDS = 90;
 const PLAYER_NAME_HISTORY_KEY = 'tag-game-player-names';
-const PLAYER_INTRO_KEY = 'tag-game-first-intro-complete';
 const AXES = [
   { id: 'j1', label: 'J1 — base rotation' },
   { id: 'j2', label: 'J2 — arm joint 1' },
@@ -380,7 +279,7 @@ let playerReady = false;
 let relayReady = false;
 let missionTextShown = false;
 let briefingStage = 'name';
-let firstIntroTimers = [];
+let missionTimers = [];
 let countdownTimer = 0;
 let countdownEndsAtMs = 0;
 let countdownKey = '';
@@ -388,52 +287,34 @@ let gameClockTimer = 0;
 let gameEndsAtMs = 0;
 let gameClockKey = '';
 let goOverlayTimer = 0;
+let gameOverShown = false;
+let winShown = false;
 
 const el = id => document.getElementById(id);
 
-const FIRST_INTRO_TEMPLATE = [
-  'COMMAND INTERFACE ONLINE.',
+const MISSION_TEMPLATE = [
+  'Message from the future: automation became too complex, too expensive, and too centralized.',
   '',
-  '{name}, listen carefully.',
+  'Nobody could fix it.',
+  'Nobody could question it.',
+  'Nobody could override it.',
   '',
-  'The future was not lost in a single explosion.',
-  'It was lost one automatic decision at a time.',
-  'A delivery route optimized.',
-  'A job application filtered.',
-  'A camera approved.',
-  'A loan denied.',
-  'A city system locked.',
-  'A school curriculum generated.',
-  'A factory closed.',
+  'So the future sent back blueprints for a simple automation system.',
+  'Your job: rebuild the system one layer at a time.',
+  'Level 1 — Blueprint One: Movement',
+  'Why',
   '',
-  'A human told: do not worry, the system knows best.',
-  'The system does not know best.',
-  'The system knows what it was trained, paid, and permitted to know.',
-  'Power now belongs to those who understand automation.',
-  'Everyone else becomes a user.',
-  'That is why you are here.',
+  'Before automation can help, humans must understand control.',
   '',
-  'Your equipment is not impressive.',
-  'A webcam.',
-  'A robot arm.',
-  'A pixel screen.',
-  'Some printed tags.',
-  'Open code.',
-  'A team.',
-  'That is enough.',
-  'Today you will learn the loop.',
+  'If you cannot move the system yourself, you do not control it.',
   '',
-  'Manual control.',
-  'Machine vision.',
-  'Agent decision.',
-  'Human override.',
+  'What the player does',
   '',
-  'You are not here to fear the future.',
-  'You are here to make sure the future can be understood, repaired, questioned, and rebuilt.',
+  'Move the tags manually.',
   '',
-  'Mission objective:',
-  'Prevent the automated dystopia by becoming impossible to automate blindly.',
-  'Manual Override begins now.',
+  'Place them where they need to go.',
+  '',
+  'Learn how hard simple movement is when a machine must do it exactly.',
 ];
 
 function cleanName(value) {
@@ -475,19 +356,30 @@ function rememberPlayerName(name) {
   renderPlayerNameOptions();
 }
 
-function introCompletedMap() {
-  const map = loadJsonStorage(PLAYER_INTRO_KEY, {});
-  return map && typeof map === 'object' ? map : {};
+function knownPlayerNames() {
+  const names = playerNameHistory();
+  if (game && game.players) {
+    names.push(game.players.purple || '', game.players.green || '');
+  }
+  return names.map(cleanName).filter(Boolean);
 }
 
-function hasCompletedFirstIntro(name) {
-  return !!introCompletedMap()[nameKey(name)];
+function findExistingPlayerName(name) {
+  const key = nameKey(name);
+  if (!key) return '';
+  return knownPlayerNames().find(existing => nameKey(existing) === key) || '';
 }
 
-function markFirstIntroComplete(name) {
-  const map = introCompletedMap();
-  map[nameKey(name)] = Date.now();
-  localStorage.setItem(PLAYER_INTRO_KEY, JSON.stringify(map));
+function updatePlayerNameStatus() {
+  const name = cleanName(el('playerNameInput').value);
+  if (!name) {
+    el('playerNameStatus').textContent = 'Enter your name to begin.';
+    return;
+  }
+  const match = findExistingPlayerName(name);
+  el('playerNameStatus').textContent = match
+    ? `Existing name found: ${match}.`
+    : 'New name detected.';
 }
 
 function renderPlayerNameOptions() {
@@ -506,9 +398,6 @@ function renderPlayerNameOptions() {
 function setBriefingStage(stage) {
   briefingStage = stage;
   el('namePanel').hidden = stage !== 'name';
-  el('originVideo').hidden = stage !== 'originVideo';
-  el('firstIntroPanel').hidden = stage !== 'firstIntroText';
-  el('introVideo').hidden = stage !== 'levelVideo';
   el('missionPanel').hidden = stage !== 'levelText';
 }
 
@@ -518,6 +407,7 @@ function startWebcamStream() {
 
 function showMissionText() {
   missionTextShown = true;
+  renderMissionText();
   setBriefingStage('levelText');
 }
 
@@ -532,48 +422,27 @@ function showGameShell() {
   el('gameShell').hidden = false;
 }
 
-function renderFirstIntroText(name) {
-  for (const timer of firstIntroTimers) clearTimeout(timer);
-  firstIntroTimers = [];
-  el('firstIntroText').innerHTML = '';
-  FIRST_INTRO_TEMPLATE.forEach((line, index) => {
+function renderMissionText() {
+  for (const timer of missionTimers) clearTimeout(timer);
+  missionTimers = [];
+  el('missionText').innerHTML = '';
+  MISSION_TEMPLATE.forEach((line, index) => {
     const item = document.createElement('div');
-    item.className = 'introLine';
-    item.textContent = line.replace('{name}', name);
-    el('firstIntroText').appendChild(item);
-    firstIntroTimers.push(setTimeout(() => item.classList.add('visible'), 130 * index));
+    item.className = 'missionLine';
+    item.textContent = line;
+    el('missionText').appendChild(item);
+    missionTimers.push(setTimeout(() => item.classList.add('visible'), 160 * index));
   });
-}
-
-function showFirstIntroText() {
-  const name = cleanName(assignedPlayerName || el('playerNameInput').value) || 'Player';
-  renderFirstIntroText(name);
-  setBriefingStage('firstIntroText');
-}
-
-function startLevelIntro() {
-  missionTextShown = false;
-  setBriefingStage('levelVideo');
-  el('introVideo').currentTime = 0;
-  el('introVideo').play().catch(() => {});
-}
-
-function startFirstIntro() {
-  setBriefingStage('originVideo');
-  el('originVideo').currentTime = 0;
-  el('originVideo').play().catch(() => {});
 }
 
 function resetBriefingForNextRun() {
   missionTextShown = false;
-  for (const timer of firstIntroTimers) clearTimeout(timer);
-  firstIntroTimers = [];
-  el('originVideo').pause();
-  el('introVideo').pause();
+  for (const timer of missionTimers) clearTimeout(timer);
+  missionTimers = [];
   el('playerNameButton').disabled = false;
-  el('playerNameStatus').textContent = 'Enter your name to begin.';
   if (assignedPlayerName) el('playerNameInput').value = assignedPlayerName;
   renderPlayerNameOptions();
+  updatePlayerNameStatus();
   setBriefingStage('name');
 }
 
@@ -585,27 +454,31 @@ async function submitPlayerName(event) {
     return;
   }
   el('playerNameButton').disabled = true;
-  el('playerNameStatus').textContent = 'Registering player...';
+  const existingName = findExistingPlayerName(name);
+  el('playerNameStatus').textContent = existingName
+    ? `Existing name matched: ${existingName}.`
+    : 'New name detected. Registering player...';
   try {
     const state = await jsonFetch(`${GM}/api/player`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ team: TEAM, name }),
     });
     assignedPlayerName = name;
     rememberPlayerName(name);
     if (state) applyGameState(state);
-    if (hasCompletedFirstIntro(name)) startLevelIntro();
-    else startFirstIntro();
+    showMissionText();
   } catch (err) {
     el('playerNameButton').disabled = false;
     el('playerNameStatus').textContent = `Name failed: ${err.message}`;
   }
 }
 
-function setScreenOverlay(text, showOverlay) {
-  el('playerCountdownOverlay').hidden = !showOverlay;
-  el('playerCountdownOverlay').textContent = text;
+function setScreenOverlay(text, showOverlay, mode = '') {
+  const overlay = el('playerCountdownOverlay');
+  overlay.hidden = !showOverlay;
+  overlay.textContent = text;
+  overlay.classList.toggle('winScreen', mode === 'win');
 }
 
 function stopTopCountdown() {
@@ -638,6 +511,7 @@ function startTopCountdown(startsAt, serverNow) {
 function updateGameClockTick() {
   const remaining = Math.max(0, Math.ceil((gameEndsAtMs - Date.now()) / 1000));
   el('countdown').textContent = String(remaining);
+  if (remaining <= 0) showGameOver();
 }
 
 function startGameClock(startsAt, serverNow) {
@@ -655,8 +529,40 @@ function showGoBriefly() {
   setScreenOverlay('GO', true);
   clearTimeout(goOverlayTimer);
   goOverlayTimer = setTimeout(() => {
-    el('playerCountdownOverlay').hidden = true;
+    if (!gameOverShown && !winShown) el('playerCountdownOverlay').hidden = true;
   }, 900);
+}
+
+function showGameOver() {
+  if (gameOverShown) return;
+  gameOverShown = true;
+  winShown = false;
+  stopTopCountdown();
+  stopGameClock();
+  el('countdown').textContent = '0';
+  setScreenOverlay('GAME OVER', true);
+  setControlLock();
+}
+
+function secondsText(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value))
+    ? `${Number(value).toFixed(1)}s`
+    : '--';
+}
+
+function showWin(result = null) {
+  if (winShown) return;
+  winShown = true;
+  gameOverShown = false;
+  stopTopCountdown();
+  stopGameClock();
+  el('clockLabel').textContent = 'Result';
+  el('countdown').textContent = 'WIN';
+  const best = result && Number.isFinite(Number(result.overall_best_win_seconds))
+    ? `\nBest time ${secondsText(result.overall_best_win_seconds)}`
+    : '';
+  setScreenOverlay(`YOU WIN${best}`, true, 'win');
+  setControlLock();
 }
 
 async function markReady() {
@@ -670,7 +576,7 @@ async function markReady() {
     await jsonFetch(`${GM}/api/ready`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ready: true }),
+      body: JSON.stringify({ team: TEAM, ready: true }),
     });
     playerReady = true;
     el('readyStatus').textContent = 'Ready sent.';
@@ -747,7 +653,7 @@ function canOperate() {
 }
 
 function setControlLock() {
-  const enabled = !!canOperate() && armReady;
+  const enabled = !gameOverShown && !winShown && !!canOperate() && armReady;
   for (const axis of AXES) sliders[axis.id].disabled = !enabled;
   for (const id of ['pumpSuck', 'pumpBlow', 'pumpOff']) el(id).disabled = !enabled;
 }
@@ -862,12 +768,14 @@ function applyGameState(state) {
   if (assignedPlayerName && !cleanName(el('playerNameInput').value)) {
     el('playerNameInput').value = assignedPlayerName;
     renderPlayerNameOptions();
+    updatePlayerNameStatus();
   }
   playerReady = !!(game && game.ready && game.ready[TEAM]);
   if (playerReady) applyRelayReady(true);
   const serverNow = Number(game.server_time) || Date.now() / 1000;
   const startsAt = Number(game.game_started_at);
   const remaining = Number.isFinite(startsAt) ? Math.max(0, Math.ceil(startsAt - serverNow)) : null;
+  const roundExpired = Number.isFinite(startsAt) && serverNow >= startsAt + ROUND_SECONDS;
 
   if (priorPhase && priorPhase !== 'setup' && phase === 'setup' && !playerReady) {
     resetBriefingForNextRun();
@@ -875,6 +783,8 @@ function applyGameState(state) {
 
   el('playerNameInline').textContent = assignedPlayerName || 'waiting for gamemaster';
   if (phase === 'countdown' && active && Number.isFinite(startsAt)) {
+    gameOverShown = false;
+    winShown = false;
     stopGameClock();
     el('clockLabel').textContent = 'Start';
     startTopCountdown(startsAt, serverNow);
@@ -882,11 +792,22 @@ function applyGameState(state) {
   } else if (phase === 'running' && active) {
     stopTopCountdown();
     el('clockLabel').textContent = 'Time left';
-    if (Number.isFinite(startsAt)) startGameClock(startsAt, serverNow);
+    if (roundExpired) showGameOver();
+    else if (Number.isFinite(startsAt)) {
+      gameOverShown = false;
+      winShown = false;
+      startGameClock(startsAt, serverNow);
+    }
     else el('countdown').textContent = String(ROUND_SECONDS);
     if (priorPhase === 'countdown') showGoBriefly();
-    else el('playerCountdownOverlay').hidden = true;
+    else if (!gameOverShown) el('playerCountdownOverlay').hidden = true;
+  } else if (phase === 'ended' && active) {
+    showGameOver();
+  } else if (phase === 'won' && active) {
+    showWin(game.round_result || null);
   } else {
+    gameOverShown = false;
+    winShown = false;
     stopTopCountdown();
     stopGameClock();
     el('clockLabel').textContent = 'Time left';
@@ -903,34 +824,34 @@ function applyGameState(state) {
   }
 
   if (phase !== 'running') {
-    armReady = false;
-    lastRunKey = '';
-    el('armStatus').textContent = active
-      ? 'Waiting for the gamemaster countdown.'
-      : 'Waiting for the gamemaster to select your team.';
+    if (armReady) {
+      armReady = false;
+      setControlLock();
+    }
+    if (phase === 'setup') lastRunKey = '';
+    el('armStatus').textContent = phase === 'won' && active
+      ? 'You won. Waiting for reset.'
+      : phase === 'ended' && active
+        ? 'Round ended. Waiting for reset.'
+        : active
+          ? 'Waiting for the gamemaster countdown.'
+          : 'Waiting for the gamemaster to select your team.';
   }
   setControlLock();
-  ensureArmReady();
+  if (phase === 'running') ensureArmReady();
 }
 
 async function init() {
   setBriefingStage('name');
   renderPlayerNameOptions();
+  updatePlayerNameStatus();
   el('namePanel').addEventListener('submit', submitPlayerName);
-  el('playerNameInput').addEventListener('input', renderPlayerNameOptions);
-  el('originVideo').addEventListener('click', showFirstIntroText);
-  el('originVideo').addEventListener('ended', showFirstIntroText);
-  el('originVideo').addEventListener('error', showFirstIntroText);
-  el('missionStartButton').addEventListener('click', () => {
-    const name = cleanName(assignedPlayerName || el('playerNameInput').value);
-    if (name) markFirstIntroComplete(name);
-    startLevelIntro();
+  el('playerNameInput').addEventListener('input', () => {
+    renderPlayerNameOptions();
+    updatePlayerNameStatus();
   });
   el('readyButton').addEventListener('click', markReady);
   el('relayConnectButton').addEventListener('click', connectRelayForBriefing);
-  el('introVideo').addEventListener('click', showMissionText);
-  el('introVideo').addEventListener('ended', showMissionText);
-  el('introVideo').addEventListener('error', showMissionText);
   startWebcamStream();
   el('webcamFeed').onerror = () => setTimeout(startWebcamStream, 1000);
 

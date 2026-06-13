@@ -79,6 +79,7 @@ DEFAULT_SANDBOXES = {
         "shared_api": {
             "dobot-mg400-relay": ["green", "purple"],
             "tag-game": ["green", "purple"],
+            "2p-tag-game": ["green", "purple"],
             "webcam": ["green", "purple"],
         },
     },

@@ -357,6 +357,27 @@
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
+  .highScoreHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 2px;
+  }
+  .highScoreHeader h3 {
+    margin: 0;
+    color: rgba(244, 247, 251, 0.72);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  #resetHighScoresButton {
+    min-height: 30px;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 850;
+  }
   .scoreTable {
     width: 100%;
     border-collapse: collapse;
@@ -458,7 +479,7 @@
     </div>
     <div id="pickupOverlayTile" class="statTile">
       <span class="statLabel">Tag pickup</span>
-      <span id="pickupOverlayValue" class="statValue">Waiting</span>
+      <span id="pickupOverlayValue" class="statValue">Waiting for tag</span>
     </div>
   </section>
 </section>
@@ -524,7 +545,7 @@
         </div>
         <div id="pickupLiveTile" class="statTile">
           <span class="statLabel">Pickup</span>
-          <span id="pickupLiveValue" class="statValue">Waiting</span>
+          <span id="pickupLiveValue" class="statValue">Waiting for tag</span>
         </div>
         <div id="readyLiveTile" class="statTile">
           <span class="statLabel">Player ready</span>
@@ -534,6 +555,10 @@
           <span class="statLabel">Runs started</span>
           <span id="runsLiveValue" class="statValue">0</span>
         </div>
+      </div>
+      <div class="highScoreHeader">
+        <h3>High scores</h3>
+        <button id="resetHighScoresButton" class="secondary" type="button">Reset high scores</button>
       </div>
       <table class="scoreTable" aria-label="current high scores">
         <thead>
@@ -594,6 +619,7 @@ const readyLiveValue = document.getElementById('readyLiveValue');
 const runsLiveValue = document.getElementById('runsLiveValue');
 const highScoreRows = document.getElementById('highScoreRows');
 const highScoreEmpty = document.getElementById('highScoreEmpty');
+const resetHighScoresButton = document.getElementById('resetHighScoresButton');
 const cameraStage = document.getElementById('cameraStage');
 const webcamFeed = document.getElementById('webcamFeed');
 const areaOverlay = document.getElementById('areaOverlay');
@@ -648,6 +674,7 @@ let gameState = 'setup';
 let selectedTag = null;
 let selectedTagSeenAt = 0;
 let preStartTagConfirmed = false;
+let preStartSeenTagIds = new Set();
 let latestRobotStatus = null;
 let hadSuctionDuringRun = false;
 let targetAreaVisible = false;
@@ -656,6 +683,10 @@ let tagBlockedSince = 0;
 let setupPoll = 0;
 let roundPoll = 0;
 let frameHandle = 0;
+let startAttempting = false;
+let playfieldPoll = 0;
+let gameStatePoll = 0;
+let relayPoll = 0;
 
 const config = loadConfig();
 let tagId = config.tagId;
@@ -674,6 +705,7 @@ let lastTelemetryPublishAt = 0;
 let playerNameEditing = false;
 let playersReady = { purple: false, green: false };
 let relayConnected = { purple: false, green: false };
+let lastCameraTagIds = [];
 
 function loadConfig() {
   try {
@@ -863,7 +895,7 @@ function operatorPatch(body) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }).catch(() => null);
+  });
 }
 
 function operatorStatePayload(extra = {}) {
@@ -884,11 +916,10 @@ function publishOperatorState(extra = {}, force = false) {
   const now = performance.now();
   if (!force && now - lastTelemetryPublishAt < 350) return;
   lastTelemetryPublishAt = now;
-  operatorPatch(operatorStatePayload(extra));
+  operatorPatch(operatorStatePayload(extra)).catch(() => null);
 }
 
-async function cameraTags() {
-  const data = await crossRequest('/p/webcam/api/tags');
+function cameraTagsFromData(data) {
   const merged = new Map();
   for (const tag of [
     ...(Array.isArray(data.tags) ? data.tags : []),
@@ -896,7 +927,30 @@ async function cameraTags() {
   ]) {
     if (tag && tag.id !== undefined && tag.id !== null) merged.set(Number(tag.id), tag);
   }
-  return [...merged.values()];
+  const tags = [...merged.values()];
+  lastCameraTagIds = tags
+    .map(tag => Number(tag.id))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (
+    gameState === 'setup'
+    && tagId === defaultConfig().tagId
+    && lastCameraTagIds.length === 1
+    && lastCameraTagIds[0] !== tagId
+    && !tagConfirmed()
+    && document.activeElement !== tagInput
+  ) {
+    tagId = clampInt(lastCameraTagIds[0], 0, TRACKED_TAG_MAX, tagId);
+    tagInput.value = String(tagId);
+    saveConfig();
+    publishSetupState(true);
+  }
+  rememberConfiguredTagFromCamera(tags);
+  return tags;
+}
+
+async function cameraTags() {
+  return cameraTagsFromData(await crossRequest('/p/webcam/api/tags'));
 }
 
 async function robotStatus() {
@@ -955,6 +1009,24 @@ function robotPoseFromArm(arm) {
 
 function trackedTag(tags) {
   return tags.find(t => Number(t.id) === Number(tagId)) || null;
+}
+
+function rememberSeenTag(tag) {
+  if (!tag) return false;
+  const id = Number(tag.id);
+  if (!Number.isFinite(id)) return false;
+  preStartSeenTagIds.add(id);
+  if (id === Number(tagId)) preStartTagConfirmed = true;
+  return id === Number(tagId);
+}
+
+function rememberConfiguredTagFromCamera(tags) {
+  if (gameState !== 'setup') return;
+  const tag = tags.find(t => Number(t.id) === Number(tagId));
+  if (!tag) return;
+  rememberSeenTag(tag);
+  selectedTag = tag;
+  selectedTagSeenAt = performance.now();
 }
 
 function poseFromArray(values) {
@@ -1143,15 +1215,7 @@ function capitalize(value) {
 }
 
 function updateHighScores() {
-  const entries = Object.entries(statsByPlayer)
-    .map(([key, stats]) => scoreEntryFromKey(key, normalizeStats(stats)))
-    .filter(entry => entry.name && entry.stats.wins > 0 && Number.isFinite(entry.stats.bestWinSeconds))
-    .sort((a, b) => (
-      a.stats.bestWinSeconds - b.stats.bestWinSeconds
-      || b.stats.wins - a.stats.wins
-      || a.name.localeCompare(b.name)
-    ))
-    .slice(0, 6);
+  const entries = highScoreEntries();
 
   highScoreRows.innerHTML = entries.map(entry => `
     <tr>
@@ -1162,6 +1226,25 @@ function updateHighScores() {
     </tr>
   `).join('');
   highScoreEmpty.style.display = entries.length ? 'none' : '';
+}
+
+function highScoreEntries(limit = 6) {
+  return Object.entries(statsByPlayer)
+    .map(([key, stats]) => scoreEntryFromKey(key, normalizeStats(stats)))
+    .filter(entry => entry.name && entry.stats.wins > 0 && Number.isFinite(entry.stats.bestWinSeconds))
+    .sort((a, b) => (
+      a.stats.bestWinSeconds - b.stats.bestWinSeconds
+      || b.stats.wins - a.stats.wins
+      || a.name.localeCompare(b.name)
+    ))
+    .slice(0, limit);
+}
+
+function resetHighScoresOnScreen() {
+  statsByPlayer = {};
+  saveConfig();
+  updateStatsDisplay();
+  setupStatus.textContent = 'High scores reset on screen. The log file was kept.';
 }
 
 function escapeHtml(value) {
@@ -1207,7 +1290,7 @@ function updateProgressDisplay() {
 }
 
 function recordRoundResult(state, elapsed) {
-  if (!playerName) return;
+  if (!playerName) return null;
   const stats = currentPlayerStats();
   const priorLastWin = stats.lastWinSeconds;
   const priorBestWin = stats.bestWinSeconds;
@@ -1226,13 +1309,40 @@ function recordRoundResult(state, elapsed) {
   stats.history = stats.history.slice(-STATS_HISTORY_LIMIT);
   saveConfig();
   updateStatsDisplay();
+  if (state !== 'won') return {
+    state,
+    team: activeTeam,
+    player: playerName,
+    elapsed_seconds: elapsed,
+  };
+  const best = highScoreEntries(1)[0] || null;
+  return {
+    state,
+    team: activeTeam,
+    player: playerName,
+    elapsed_seconds: elapsed,
+    player_best_win_seconds: stats.bestWinSeconds,
+    overall_best_win_seconds: best ? best.stats.bestWinSeconds : stats.bestWinSeconds,
+    overall_best_player: best ? best.name : playerName,
+    overall_best_team: best ? best.team : activeTeam,
+    wins: stats.wins,
+  };
+}
+
+function appendHighScoreLog(result) {
+  if (!result || result.state !== 'won') return;
+  crossRequest('/p/tag-game/api/high-score-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(result),
+  }).catch(() => null);
 }
 
 function updateSelectedTag(tag) {
   if (tag) {
+    rememberSeenTag(tag);
     selectedTag = tag;
     selectedTagSeenAt = performance.now();
-    preStartTagConfirmed = true;
   } else if (performance.now() - selectedTagSeenAt > TAG_VISIBLE_GRACE_MS) {
     selectedTag = null;
   }
@@ -1244,7 +1354,7 @@ function tagReady() {
 }
 
 function tagConfirmed() {
-  return preStartTagConfirmed || tagReady();
+  return preStartTagConfirmed || preStartSeenTagIds.has(Number(tagId)) || tagReady();
 }
 
 function vacuumOn(status = latestRobotStatus) {
@@ -1253,8 +1363,17 @@ function vacuumOn(status = latestRobotStatus) {
 
 function updatePickupDisplay(tag = selectedTag, status = latestRobotStatus) {
   if (gameState === 'setup') {
-    const visible = !!tag || tagReady() || preStartTagConfirmed;
-    setPickupLiveValue(visible ? 'Tag visible' : 'Waiting', visible ? '' : 'warn');
+    if (tag) rememberConfiguredTagFromCamera([tag]);
+    const visible = !!tag || tagReady();
+    const confirmed = tagConfirmed();
+    const text = visible
+      ? `Tag ${tagId} visible`
+      : confirmed
+        ? `Tag ${tagId} seen`
+        : lastCameraTagIds.length
+          ? `Detected ${lastCameraTagIds.map(id => `#${id}`).join(', ')} - waiting for #${tagId}`
+          : `Waiting for tag ${tagId}`;
+    setPickupLiveValue(text, confirmed ? '' : 'warn');
     return;
   }
   if (gameState === 'won') {
@@ -1283,8 +1402,13 @@ function updatePickupDisplay(tag = selectedTag, status = latestRobotStatus) {
 }
 
 function setStartEnabled() {
+  if (startAttempting) {
+    startButton.disabled = true;
+    updateProgressDisplay();
+    return;
+  }
   startButton.disabled = gameState !== 'setup'
-    || !(depositCenterConfirmed && playerName && activeRelayConnected() && activePlayerReady() && tagConfirmed());
+    || !(depositCenterConfirmed && depositCenterPose && playerName && activeRelayConnected() && activePlayerReady() && tagConfirmed());
   updateProgressDisplay();
 }
 
@@ -1362,58 +1486,75 @@ async function createDepositAreaForRound() {
   lastSentSize = AREA_SIZE;
 }
 
+async function pollPlayfieldState() {
+  try {
+    const data = await request('/api/state');
+    const areas = data.areas || [];
+    const pickup = areas.find(area => area.name === PICKUP_AREA.name);
+    const deposit = areas.find(area => area.name === DEPOSIT_AREA.name);
+    pickupArea = pickup || null;
+    depositArea = deposit || null;
+  } catch (_) {}
+}
+
+// Keep the operator page on short polling instead of long-lived EventSource/SSE.
+// This screen already holds a long-lived MJPEG camera stream, while player
+// screens also keep live streams open. Extra EventSource connections previously
+// starved important POSTs such as Start game on the local threaded hub: the
+// operator countdown could stick at 5 and players never received countdown.
+// Polling these lightweight JSON endpoints keeps connections short so Start,
+// Reset, and area creation get through reliably. Do not switch these back to
+// EventSource unless the hub/server connection model is changed and Start is
+// verified with operator + player + webcam open together.
 function connectPlayfieldEvents() {
-  const es = new EventSource(PLAYFIELD('/api/events'));
-  es.onmessage = e => {
-    try {
-      const data = JSON.parse(e.data);
-      const areas = data.areas || [];
-      const pickup = areas.find(area => area.name === PICKUP_AREA.name);
-      const deposit = areas.find(area => area.name === DEPOSIT_AREA.name);
-      pickupArea = pickup || null;
-      depositArea = deposit || null;
-    } catch (_) {}
-  };
+  pollPlayfieldState();
+  playfieldPoll = setInterval(pollPlayfieldState, 900);
+}
+
+async function pollGameState() {
+  try {
+    const state = await crossRequest('/p/tag-game/api/state');
+    if (state && state.ready) {
+      playersReady = {
+        purple: !!state.ready.purple,
+        green: !!state.ready.green,
+      };
+      updateReadyDisplay();
+    }
+    const incomingName = cleanPlayerName(state && state.players && state.players[activeTeam]);
+    if (gameState === 'setup' && incomingName && !playerNameEditing && incomingName !== playerName) {
+      playerName = incomingName;
+      playerNameInput.value = playerName;
+      saveConfig();
+      updateStatsDisplay();
+      setStartEnabled();
+      updateSetupStatus(selectedTag);
+    }
+  } catch (_) {}
 }
 
 function connectGameStateEvents() {
-  const es = new EventSource(ABS('/p/tag-game/api/events'));
-  es.onmessage = e => {
-    try {
-      const state = JSON.parse(e.data);
-      if (state && state.ready) {
-        playersReady = {
-          purple: !!state.ready.purple,
-          green: !!state.ready.green,
-        };
-        updateReadyDisplay();
-      }
-      const incomingName = cleanPlayerName(state && state.players && state.players[activeTeam]);
-      if (gameState === 'setup' && incomingName && !playerNameEditing && incomingName !== playerName) {
-        playerName = incomingName;
-        playerNameInput.value = playerName;
-        saveConfig();
-        updateStatsDisplay();
-        setStartEnabled();
-        updateSetupStatus(selectedTag);
-      }
-    } catch (_) {}
-  };
+  pollGameState();
+  gameStatePoll = setInterval(pollGameState, 700);
 }
 
-async function connectRelayEvents() {
-  try { applyRelayState(await crossRequest('/p/dobot-mg400-relay/api/state')); } catch (_) {}
-  const es = new EventSource(ABS('/p/dobot-mg400-relay/api/events'));
-  es.onmessage = e => {
-    try {
-      applyRelayState(JSON.parse(e.data));
-    } catch (_) {}
-  };
-  es.onerror = () => {
+function connectWebcamEvents() {
+  // Setup already polls /api/tags; avoid another long-lived connection here.
+}
+
+async function pollRelayState() {
+  try {
+    applyRelayState(await crossRequest('/p/dobot-mg400-relay/api/state'));
+  } catch (_) {
     relayConnected = { purple: false, green: false };
     updateRelayDisplay();
     setStartEnabled();
-  };
+  }
+}
+
+async function connectRelayEvents() {
+  await pollRelayState();
+  relayPoll = setInterval(pollRelayState, 900);
 }
 
 function publishSetupState(force = false) {
@@ -1421,6 +1562,7 @@ function publishSetupState(force = false) {
     phase: gameState,
     active_team: activeTeam,
     players: { [activeTeam]: playerName },
+    round_result: null,
   }, force);
 }
 
@@ -1746,6 +1888,7 @@ function commitConfiguredTagId() {
 }
 
 function updateSetupStatus(tag) {
+  if (startAttempting) return;
   updateSelectedTag(tag);
   setStartEnabled();
   if (!playerName) {
@@ -1755,17 +1898,19 @@ function updateSetupStatus(tag) {
   } else if (!activePlayerReady()) {
     setupStatus.textContent = `${capitalize(activeTeam)} player must press Ready on their Tag Game screen.`;
   } else if (!tagConfirmed()) {
-    setupStatus.textContent = `Show tag ${tagId} once at the pickup area before starting.`;
+    setupStatus.textContent = lastCameraTagIds.length
+      ? `Detected ${lastCameraTagIds.map(id => `#${id}`).join(', ')}. Set tracked tag to ${lastCameraTagIds.includes(Number(tagId)) ? tagId : 'the detected tag'} or show #${tagId}.`
+      : `Show tag ${tagId} once at the pickup area before starting.`;
   } else if (!depositCenterConfirmed && tagReady()) {
-    setupStatus.textContent = `Tag ${tagId} visible. Calibrate the green center if needed.`;
+    setupStatus.textContent = `Tag ${tagId} visible. Calibrate the green target before starting.`;
   } else if (!depositCenterConfirmed) {
-    setupStatus.textContent = `Waiting for tag ${tagId}. Calibrate the green center if needed.`;
+    setupStatus.textContent = `Tag ${tagId} seen once. Calibrate the green target before starting.`;
   } else if (!depositCenterPose && tagConfirmed()) {
-    setupStatus.textContent = `Center confirmed. Tag ${tagId} is visible. Press Start game.`;
+    setupStatus.textContent = `Center target is missing robot calibration. Move the robot tip to the green center and confirm.`;
   } else if (!depositCenterPose) {
-    setupStatus.textContent = `Center confirmed. Press Start game to read the robot position.`;
+    setupStatus.textContent = 'Center target is missing robot calibration. Move the robot tip to the green center and confirm.';
   } else if (tagConfirmed()) {
-    setupStatus.textContent = `Deposit center confirmed. Tag ${tagId} is visible. Press Start game.`;
+    setupStatus.textContent = `Deposit center confirmed. Tag ${tagId} was seen. Press Start game.`;
   } else {
     setupStatus.textContent = `Deposit center confirmed. Press Start game to check tag ${tagId}.`;
   }
@@ -1817,7 +1962,7 @@ async function confirmDepositCenter() {
 }
 
 async function pollSetup() {
-  if (gameState !== 'setup') return;
+  if (gameState !== 'setup' || startAttempting) return;
   try {
     updateActiveOverlay();
     const tag = trackedTag(await cameraTags());
@@ -1851,21 +1996,25 @@ function finishRound(state) {
   finishedAt = performance.now();
   clearInterval(roundPoll);
   sendDepositSize(AREA_SIZE, true);
-  recordRoundResult(state, elapsedSeconds());
+  const result = recordRoundResult(state, elapsedSeconds());
+  appendHighScoreLog(result);
   if (state === 'won') timerEl.textContent = 'WIN';
-  publishOperatorState({ phase: state }, true);
+  publishOperatorState({ phase: state, round_result: result }, true);
   updateControlAvailability();
   updatePickupDisplay();
   updateProgressDisplay();
 }
 
 async function resetRound() {
+  restartButton.disabled = true;
   clearInterval(setupPoll);
   clearInterval(roundPoll);
   gameState = 'setup';
+  startAttempting = false;
   selectedTag = null;
   selectedTagSeenAt = 0;
   preStartTagConfirmed = false;
+  preStartSeenTagIds.clear();
   hadSuctionDuringRun = false;
   targetAreaVisible = false;
   targetAreaCreating = false;
@@ -1879,7 +2028,7 @@ async function resetRound() {
   updateStatsDisplay();
   updateControlAvailability();
   setStartEnabled();
-  setupStatus.textContent = `Waiting for tag ${tagId}. Calibrate the green center if needed.`;
+  setupStatus.textContent = 'Resetting tag-game areas...';
   updatePickupDisplay(null);
   playersReady[activeTeam] = false;
   updateReadyDisplay();
@@ -1887,19 +2036,29 @@ async function resetRound() {
     phase: 'setup',
     game_started_at: null,
     countdown_started_at: null,
+    round_result: null,
     ready: { [activeTeam]: false },
   }, true);
   updateProgressDisplay();
-  await clearPlayfieldAreas();
-  updateActiveOverlay();
-  setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);
-  await pollSetup();
+  try {
+    await clearPlayfieldAreas();
+    updateActiveOverlay();
+    setupStatus.textContent = depositCenterConfirmed && depositCenterPose
+      ? `Waiting for tag ${tagId}. Target calibration is saved.`
+      : `Waiting for tag ${tagId}. Calibrate the green target before starting.`;
+  } catch (_) {
+    setupStatus.textContent = 'Reset could not clear the tag-game areas.';
+  } finally {
+    restartButton.disabled = false;
+    setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);
+    await pollSetup();
+  }
 }
 
 function tick() {
   updateActiveOverlay();
   updateArmTelemetry();
-  updatePickupDisplay();
+  if (gameState !== 'setup') updatePickupDisplay();
   if (gameState === 'won') {
     frameHandle = requestAnimationFrame(tick);
     return;
@@ -1926,108 +2085,119 @@ function tick() {
 }
 
 async function startRound() {
-  if (gameState !== 'setup') return;
+  if (startAttempting) return;
+  if (gameState !== 'setup') {
+    setupStatus.textContent = `Cannot start while game state is ${gameState}.`;
+    return;
+  }
+  startAttempting = true;
+  startButton.disabled = true;
+  setupStatus.textContent = 'Checking start conditions...';
   playerName = cleanPlayerName(playerNameInput.value);
   playerNameInput.value = playerName;
   saveConfig();
   updateStatsDisplay();
   if (!playerName) {
+    startAttempting = false;
     setStartEnabled();
     setupStatus.textContent = 'Enter the player name for the selected team.';
     return;
   }
   if (!activeRelayConnected()) {
+    startAttempting = false;
     setStartEnabled();
     setupStatus.textContent = `Connect the ${capitalize(activeTeam)} MG400 Relay before starting.`;
     return;
   }
   if (!activePlayerReady()) {
+    startAttempting = false;
     setStartEnabled();
     setupStatus.textContent = `${capitalize(activeTeam)} player must press Ready on their Tag Game screen.`;
     return;
   }
   commitConfiguredTagId();
-  try {
-    updateSelectedTag(trackedTag(await cameraTags()));
-  } catch (_) {}
   if (!tagConfirmed()) {
+    setupStatus.textContent = `Checking tag ${tagId}...`;
+    try {
+      updateSelectedTag(trackedTag(await cameraTags()));
+    } catch (_) {}
+  }
+  if (!tagConfirmed()) {
+    startAttempting = false;
     setStartEnabled();
     setupStatus.textContent = `Show tag ${tagId} once at the pickup area before starting.`;
     return;
   }
-  startButton.disabled = true;
-  if (!depositCenterConfirmed) {
+  if (!depositCenterConfirmed || !depositCenterPose) {
+    startAttempting = false;
+    setupStatus.textContent = 'Calibrate the green target before starting: show target, move the robot tip to its center, then confirm.';
     setStartEnabled();
     return;
   }
-  if (!depositCenterPose) {
-    robotStatus().then(status => {
-      const pose = robotPose(status);
-      if (robotPoseUsable(status, pose)) {
-        depositCenterPose = pose;
-        depositCenterConfirmed = true;
-        saveConfig();
-      }
-      updateArmTelemetry(status);
-    }).catch(() => {});
-  }
+  setupStatus.textContent = 'Starting countdown...';
   gameState = 'countdown';
+  startAttempting = false;
   recordRunStart();
   countdownEndsAt = performance.now() + COUNTDOWN_SECONDS * 1000;
   timerEl.textContent = String(COUNTDOWN_SECONDS);
   updateControlAvailability();
   setupStatus.textContent = `${capitalize(activeTeam)} team starts in ${COUNTDOWN_SECONDS} seconds.`;
-  const serverState = await operatorPatch(operatorStatePayload({
-    phase: 'countdown',
-  }));
-  if (serverState && Number.isFinite(Number(serverState.game_started_at)) && Number.isFinite(Number(serverState.server_time))) {
-    countdownEndsAt = performance.now() + Math.max(0, Number(serverState.game_started_at) - Number(serverState.server_time)) * 1000;
-  }
   updateProgressDisplay();
+  operatorPatch(operatorStatePayload({ phase: 'countdown' }))
+    .then(serverState => {
+      if (gameState !== 'countdown') return;
+      if (serverState && Number.isFinite(Number(serverState.game_started_at)) && Number.isFinite(Number(serverState.server_time))) {
+        countdownEndsAt = performance.now() + Math.max(0, Number(serverState.game_started_at) - Number(serverState.server_time)) * 1000;
+      }
+      updateProgressDisplay();
+    })
+    .catch(err => {
+      setupStatus.textContent = `Countdown is local only: ${err.message}`;
+    });
 }
 
 async function beginRoundPlay() {
   if (roundStarting || gameState !== 'countdown') return;
   roundStarting = true;
-  await clearPlayfieldAreas();
-  await createPickupAreaForRound();
-  lastSentSize = AREA_SIZE;
-  targetAreaVisible = false;
-  targetAreaCreating = false;
-  tagBlockedSince = 0;
-  selectedTag = null;
-  selectedTagSeenAt = 0;
-  updatePickupDisplay(null);
-  updateActiveOverlay();
-  startedAt = performance.now();
-  finishedAt = 0;
-  hadSuctionDuringRun = String(latestRobotStatus && latestRobotStatus.pump_mode || '').toLowerCase() === 'suck';
-  updateArmTelemetry();
-  clearInterval(setupPoll);
-  gameState = 'running';
-  timerEl.textContent = String(ROUND_SECONDS);
-  updateControlAvailability();
-  updateProgressDisplay();
-  publishOperatorState({ phase: 'running' }, true);
-  roundPoll = setInterval(pollRound, ROBOT_POLL_MS);
-  roundStarting = false;
+  try {
+    await clearPlayfieldAreas();
+    await createPickupAreaForRound();
+    lastSentSize = AREA_SIZE;
+    targetAreaVisible = false;
+    targetAreaCreating = false;
+    tagBlockedSince = 0;
+    selectedTag = null;
+    selectedTagSeenAt = 0;
+    updatePickupDisplay(null);
+    updateActiveOverlay();
+    startedAt = performance.now();
+    finishedAt = 0;
+    hadSuctionDuringRun = String(latestRobotStatus && latestRobotStatus.pump_mode || '').toLowerCase() === 'suck';
+    updateArmTelemetry();
+    clearInterval(setupPoll);
+    gameState = 'running';
+    timerEl.textContent = String(ROUND_SECONDS);
+    updateControlAvailability();
+    updateProgressDisplay();
+    publishOperatorState({ phase: 'running' }, true);
+    roundPoll = setInterval(pollRound, ROBOT_POLL_MS);
+  } catch (err) {
+    gameState = 'setup';
+    setupStatus.textContent = `Could not create tag-game areas: ${err.message}`;
+    updateControlAvailability();
+    setStartEnabled();
+    publishSetupState(true);
+  } finally {
+    roundStarting = false;
+  }
 }
 
 async function init() {
   startWebcamStream();
   connectPlayfieldEvents();
   connectGameStateEvents();
+  connectWebcamEvents();
   connectRelayEvents();
-  await clearPlayfieldAreas();
-  teamSelect.value = activeTeam;
-  playerNameInput.value = playerName;
-  updateReadyDisplay();
-  tagInput.value = String(tagId);
-  syncRadiusInputs(activeRadiusMm);
-  updateArmTelemetry();
-  updateStatsDisplay();
-  updateControlAvailability();
-  publishSetupState(true);
 
   teamSelect.addEventListener('change', () => {
     activeTeam = normalizeTeam(teamSelect.value);
@@ -2057,6 +2227,7 @@ async function init() {
       selectedTag = null;
       selectedTagSeenAt = 0;
       preStartTagConfirmed = false;
+      preStartSeenTagIds.clear();
       setStartEnabled();
       setupStatus.textContent = 'Enter the tracked tag number.';
       return;
@@ -2064,6 +2235,7 @@ async function init() {
     selectedTag = null;
     selectedTagSeenAt = 0;
     preStartTagConfirmed = false;
+    preStartSeenTagIds.clear();
     setStartEnabled();
     setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
     publishSetupState();
@@ -2076,6 +2248,23 @@ async function init() {
   startButton.addEventListener('click', startRound);
   restartButton.addEventListener('click', resetRound);
   clearAlarmButton.addEventListener('click', clearActiveArmErrors);
+  resetHighScoresButton.addEventListener('click', resetHighScoresOnScreen);
+
+  teamSelect.value = activeTeam;
+  playerNameInput.value = playerName;
+  updateReadyDisplay();
+  tagInput.value = String(tagId);
+  syncRadiusInputs(activeRadiusMm);
+  updateArmTelemetry();
+  updateStatsDisplay();
+  updateControlAvailability();
+  publishSetupState(true);
+
+  try {
+    await clearPlayfieldAreas();
+  } catch (err) {
+    setupStatus.textContent = `Could not reset tag-game areas: ${err.message}`;
+  }
 
   updateActiveOverlay();
   setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);

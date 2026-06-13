@@ -159,6 +159,7 @@ const toggleDisabled = document.getElementById('toggleDisabled');
 let protos = [];
 let active = null;
 let meta = { sandbox: '', label: 'Manual Override', accent: '' };
+let frameLoadSeq = 0;
 // "tab order" mode: ON shows the reorder/enable-disable GUI (drag handles,
 // switches, disabled tabs); OFF is the clean operating mode — plain tabs only,
 // so switching between machines never fights the management controls.
@@ -273,6 +274,11 @@ function applySavedOrder() {                          // reorder protos to the s
   protos = protos.map((p, i) => ({ p, k: rank(p.slug, i) })).sort((a, b) => a.k - b.k).map(o => o.p);
 }
 
+function freshUrl(url) {
+  const join = url.includes('?') ? '&' : '?';
+  return `${url}${join}_=${Date.now()}`;
+}
+
 // ---- tabs ------------------------------------------------------------------
 function renderTabs() {
   tabsEl.innerHTML = '';
@@ -351,6 +357,7 @@ function mdToHtml(src) {
 }
 
 function selectProto(p) {
+  const seq = ++frameLoadSeq;
   active = p;
   for (const el of tabsEl.children) el.classList.toggle('active', el.dataset.slug === p.slug);
   descEl.innerHTML = mdToHtml(p.description || '') + (p.enabled ? '' : '<div>·  (disabled)</div>');
@@ -371,7 +378,10 @@ function selectProto(p) {
   openTab.style.display = '';
 
   openTab.href = p.default_url;
-  frame.src = p.default_url;     // embed the default GUI (the controller)
+  frame.src = 'about:blank';     // stop old streams before loading the next GUI
+  requestAnimationFrame(() => {
+    if (seq === frameLoadSeq) frame.src = freshUrl(p.default_url);
+  });
 
   // extra page links (e.g. "Open clean playfield ↗")
   pageLinksEl.innerHTML = '';
@@ -382,12 +392,27 @@ function selectProto(p) {
     a.textContent = page.label;
     a.href = page.url;
     if (page.newtab) a.target = '_blank';
-    else a.onclick = e => { e.preventDefault(); frame.src = page.url; openTab.href = page.url; };
+    else a.onclick = e => {
+      e.preventDefault();
+      const pageSeq = ++frameLoadSeq;
+      frame.src = 'about:blank';
+      openTab.href = page.url;
+      requestAnimationFrame(() => {
+        if (pageSeq === frameLoadSeq) frame.src = freshUrl(page.url);
+      });
+    };
     pageLinksEl.appendChild(a);
   }
 }
 
-reloadBtn.onclick = () => { frame.src = frame.src; };
+reloadBtn.onclick = () => {
+  const url = frame.src;
+  const seq = ++frameLoadSeq;
+  frame.src = 'about:blank';
+  requestAnimationFrame(() => {
+    if (seq === frameLoadSeq) frame.src = freshUrl(url.replace(/[?&]_=\d+$/, ''));
+  });
+};
 
 async function load() {
   try {

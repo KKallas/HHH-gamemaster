@@ -25,4 +25,6 @@ bp = Blueprint("player_tag_game", __name__)
 
 @bp.route("/")
 def index():
-    return send_from_directory(HERE, "controller.html")
+    resp = send_from_directory(HERE, "controller.html")
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp

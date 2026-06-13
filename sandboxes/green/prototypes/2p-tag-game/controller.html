@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tag Game Player</title>
+<title>2P Tag Game Player</title>
 <link rel="stylesheet" href="/theme.css" />
 <style>
   main { max-width: 1180px; margin: 0 auto; padding: 12px 20px 20px; }
@@ -122,6 +122,17 @@
     white-space:pre-wrap;
     text-shadow:0 0 8px rgba(75, 255, 112, 0.74), 0 0 18px rgba(21, 247, 255, 0.22);
     box-shadow:inset 0 0 34px rgba(21, 247, 255, 0.08), 0 0 30px rgba(75, 255, 112, 0.12);
+  }
+  .missionLine {
+    min-height:1.55em;
+    opacity:0;
+    transform:translateY(5px);
+    transition:opacity 420ms ease, transform 420ms ease;
+    white-space:pre-wrap;
+  }
+  .missionLine.visible {
+    opacity:1;
+    transform:translateY(0);
   }
   .readyBar {
     display:flex;
@@ -253,72 +264,7 @@
   </div>
   <video id="introVideo" class="briefingVideo" src="/Video1.mp4" muted playsinline title="Click to skip" hidden></video>
   <div id="missionPanel" class="missionPanel" hidden>
-    <pre class="missionText">COMMAND INTERFACE ONLINE.
-
-Cadets, listen carefully.
-
-The future was not lost in a single explosion.
-
-It was lost one automatic decision at a time.
-
-A delivery route optimized.
-
-A job application filtered.
-
-A camera approved.
-
-A loan denied.
-
-A city system locked.
-
-A school curriculum generated.
-
-A factory closed.
-
-A human told: do not worry, the system knows best.
-
-The system does not know best.
-
-The system knows what it was trained, paid, and permitted to know.
-
-Power now belongs to those who understand automation.
-
-Everyone else becomes a user.
-
-That is why you are here.
-
-Your equipment is not impressive.
-
-A webcam.
-
-A robot arm.
-
-A pixel screen.
-
-Some printed tags.
-
-Open code.
-
-A team.
-
-That is enough.
-
-Today you will learn the loop.
-
-Manual control.
-Machine vision.
-Agent decision.
-Human override.
-
-You are not here to fear the future.
-
-You are here to make sure the future can be understood, repaired, questioned, and rebuilt.
-
-Mission objective:
-
-Prevent the automated dystopia by becoming impossible to automate blindly.
-
-Manual Override begins now.</pre>
+    <div id="missionText" class="missionText"></div>
     <div class="readyBar">
       <button id="relayConnectButton" type="button">Relay Connect</button>
       <button id="readyButton" type="button" disabled>Ready</button>
@@ -361,12 +307,11 @@ Manual Override begins now.</pre>
 
 <script>
 const TEAM = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] === 'green' ? 'green' : 'purple';
-const GM = `${location.origin}/s/gamemaster/p/tag-game`;
+const GM = `${location.origin}/s/gamemaster/p/2p-tag-game`;
 const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
 const JOINT = `${location.origin}/s/${TEAM}/p/joint-angles-test`;
 const ROUND_SECONDS = 90;
-const PLAYER_NAME_HISTORY_KEY = 'tag-game-player-names';
-const PLAYER_INTRO_KEY = 'tag-game-first-intro-complete';
+const PLAYER_NAME_HISTORY_KEY = '2p-tag-game-player-names';
 const AXES = [
   { id: 'j1', label: 'J1 — base rotation' },
   { id: 'j2', label: 'J2 — arm joint 1' },
@@ -383,9 +328,10 @@ let assignedPlayerName = '';
 let pumpMode = 'off';
 let playerReady = false;
 let relayReady = false;
+let nameSubmitted = false;
 let missionTextShown = false;
 let briefingStage = 'name';
-let firstIntroTimers = [];
+let missionTimers = [];
 let countdownTimer = 0;
 let countdownEndsAtMs = 0;
 let countdownKey = '';
@@ -398,53 +344,61 @@ let winShown = false;
 
 const el = id => document.getElementById(id);
 
-const FIRST_INTRO_TEMPLATE = [
-  'COMMAND INTERFACE ONLINE.',
+const MISSION_TEMPLATE = [
+  'When automation became too complex, too expensive, and too centralized.',
+  'Then',
   '',
-  '{name}, listen carefully.',
+  'Nobody could fix it.',
+  'Nobody could question it.',
+  'Nobody could override it.',
   '',
-  'The future was not lost in a single explosion.',
-  'It was lost one automatic decision at a time.',
-  'A delivery route optimized.',
-  'A job application filtered.',
-  'A camera approved.',
-  'A loan denied.',
-  'A city system locked.',
-  'A school curriculum generated.',
-  'A factory closed.',
+  'So the wise ones from the future sent back blueprints for a simple automation system.',
+  'Your job: rebuild the system one layer at a time.',
+  'Level 1 — Blueprint One: Movement',
+  'Why',
   '',
-  'A human told: do not worry, the system knows best.',
-  'The system does not know best.',
-  'The system knows what it was trained, paid, and permitted to know.',
-  'Power now belongs to those who understand automation.',
-  'Everyone else becomes a user.',
-  'That is why you are here.',
+  'Before automation can help, humans must understand control.',
   '',
-  'Your equipment is not impressive.',
-  'A webcam.',
-  'A robot arm.',
-  'A pixel screen.',
-  'Some printed tags.',
-  'Open code.',
-  'A team.',
-  'That is enough.',
-  'Today you will learn the loop.',
+  'If you cannot move the system yourself, you do not control it.',
   '',
-  'Manual control.',
-  'Machine vision.',
-  'Agent decision.',
-  'Human override.',
+  'Your Mission',
   '',
-  'You are not here to fear the future.',
-  'You are here to make sure the future can be understood, repaired, questioned, and rebuilt.',
+  'Move the tags manually, without hitting the other robot arm.',
+  'The Purple moves a Purple tag to the Green area',
+  'The Green moves a green tag to the Purple area',
   '',
-  'Mission objective:',
-  'Prevent the automated dystopia by becoming impossible to automate blindly.',
-  'Manual Override begins now.',
+  'Place them where they need to go.',
+  '',
+  'Learn how hard simple movement is when a machine must do it exactly.',
 ];
 
 function cleanName(value) {
   return String(value || '').trim().slice(0, 32);
+}
+
+function teamGameState(state = game) {
+  return state && state.teams && state.teams[TEAM] ? state.teams[TEAM] : {};
+}
+
+function teamIsActive(state = game) {
+  return !!(state && (
+    state.active_team === TEAM
+    || state.active_team === 'both'
+    || state.mode === 'two_player'
+    || (Array.isArray(state.active_teams) && state.active_teams.includes(TEAM))
+  ));
+}
+
+function ownRoundResult(state = game) {
+  const result = state && state.round_result;
+  if (result && result.results && result.results[TEAM]) return result.results[TEAM];
+  if (result && result.team === TEAM) return result;
+  return null;
+}
+
+function teamLabel(value) {
+  const text = String(value || '');
+  return text ? text[0].toUpperCase() + text.slice(1) : '';
 }
 
 function nameKey(value) {
@@ -482,21 +436,6 @@ function rememberPlayerName(name) {
   renderPlayerNameOptions();
 }
 
-function introCompletedMap() {
-  const map = loadJsonStorage(PLAYER_INTRO_KEY, {});
-  return map && typeof map === 'object' ? map : {};
-}
-
-function hasCompletedFirstIntro(name) {
-  return !!introCompletedMap()[nameKey(name)];
-}
-
-function markFirstIntroComplete(name) {
-  const map = introCompletedMap();
-  map[nameKey(name)] = Date.now();
-  localStorage.setItem(PLAYER_INTRO_KEY, JSON.stringify(map));
-}
-
 function renderPlayerNameOptions() {
   const query = nameKey(el('playerNameInput').value);
   const options = playerNameHistory()
@@ -513,9 +452,9 @@ function renderPlayerNameOptions() {
 function setBriefingStage(stage) {
   briefingStage = stage;
   el('namePanel').hidden = stage !== 'name';
-  el('originVideo').hidden = stage !== 'originVideo';
-  el('firstIntroPanel').hidden = stage !== 'firstIntroText';
-  el('introVideo').hidden = stage !== 'levelVideo';
+  el('originVideo').hidden = true;
+  el('firstIntroPanel').hidden = true;
+  el('introVideo').hidden = true;
   el('missionPanel').hidden = stage !== 'levelText';
 }
 
@@ -525,6 +464,7 @@ function startWebcamStream() {
 
 function showMissionText() {
   missionTextShown = true;
+  renderMissionText();
   setBriefingStage('levelText');
 }
 
@@ -539,44 +479,24 @@ function showGameShell() {
   el('gameShell').hidden = false;
 }
 
-function renderFirstIntroText(name) {
-  for (const timer of firstIntroTimers) clearTimeout(timer);
-  firstIntroTimers = [];
-  el('firstIntroText').innerHTML = '';
-  FIRST_INTRO_TEMPLATE.forEach((line, index) => {
+function renderMissionText() {
+  for (const timer of missionTimers) clearTimeout(timer);
+  missionTimers = [];
+  el('missionText').innerHTML = '';
+  MISSION_TEMPLATE.forEach((line, index) => {
     const item = document.createElement('div');
-    item.className = 'introLine';
-    item.textContent = line.replace('{name}', name);
-    el('firstIntroText').appendChild(item);
-    firstIntroTimers.push(setTimeout(() => item.classList.add('visible'), 130 * index));
+    item.className = 'missionLine';
+    item.textContent = line;
+    el('missionText').appendChild(item);
+    missionTimers.push(setTimeout(() => item.classList.add('visible'), 160 * index));
   });
-}
-
-function showFirstIntroText() {
-  const name = cleanName(assignedPlayerName || el('playerNameInput').value) || 'Player';
-  renderFirstIntroText(name);
-  setBriefingStage('firstIntroText');
-}
-
-function startLevelIntro() {
-  missionTextShown = false;
-  setBriefingStage('levelVideo');
-  el('introVideo').currentTime = 0;
-  el('introVideo').play().catch(() => {});
-}
-
-function startFirstIntro() {
-  setBriefingStage('originVideo');
-  el('originVideo').currentTime = 0;
-  el('originVideo').play().catch(() => {});
 }
 
 function resetBriefingForNextRun() {
   missionTextShown = false;
-  for (const timer of firstIntroTimers) clearTimeout(timer);
-  firstIntroTimers = [];
-  el('originVideo').pause();
-  el('introVideo').pause();
+  nameSubmitted = false;
+  for (const timer of missionTimers) clearTimeout(timer);
+  missionTimers = [];
   el('playerNameButton').disabled = false;
   el('playerNameStatus').textContent = 'Enter your name to begin.';
   if (assignedPlayerName) el('playerNameInput').value = assignedPlayerName;
@@ -600,10 +520,10 @@ async function submitPlayerName(event) {
       body: JSON.stringify({ team: TEAM, name }),
     });
     assignedPlayerName = name;
+    nameSubmitted = true;
     rememberPlayerName(name);
     if (state) applyGameState(state);
-    if (hasCompletedFirstIntro(name)) startLevelIntro();
-    else startFirstIntro();
+    showMissionText();
   } catch (err) {
     el('playerNameButton').disabled = false;
     el('playerNameStatus').textContent = `Name failed: ${err.message}`;
@@ -693,15 +613,21 @@ function showWin(result = null) {
   stopTopCountdown();
   stopGameClock();
   el('clockLabel').textContent = 'Result';
-  el('countdown').textContent = 'WIN';
+  const didWin = !result || !result.team || result.team === TEAM;
+  el('countdown').textContent = didWin ? 'WIN' : '0';
   const best = result && Number.isFinite(Number(result.overall_best_win_seconds))
     ? `\nBest time ${secondsText(result.overall_best_win_seconds)}`
     : '';
-  setScreenOverlay(`YOU WIN${best}`, true, 'win');
+  setScreenOverlay(didWin ? `YOU WIN${best}` : `${teamLabel(result && result.team)} TEAM WINS`, true, didWin ? 'win' : '');
   setControlLock();
 }
 
 async function markReady() {
+  if (!nameSubmitted) {
+    el('readyStatus').textContent = 'Enter your name first.';
+    setBriefingStage('name');
+    return;
+  }
   if (!relayReady) {
     el('readyStatus').textContent = 'Connect relay first.';
     return;
@@ -785,7 +711,7 @@ function buildAxes() {
 }
 
 function canOperate() {
-  return game && game.phase === 'running' && game.active_team === TEAM && assignedPlayerName && playerReady;
+  return game && game.phase === 'running' && teamIsActive(game) && !ownRoundResult(game) && assignedPlayerName && playerReady;
 }
 
 function setControlLock() {
@@ -795,7 +721,7 @@ function setControlLock() {
 }
 
 function runKey() {
-  return game ? `${game.phase}:${game.active_team}:${game.game_started_at || ''}` : '';
+  return game ? `${game.phase}:${teamIsActive(game) ? TEAM : game.active_team}:${game.game_started_at || ''}` : '';
 }
 
 async function ensureArmReady() {
@@ -876,8 +802,9 @@ function applyPumpMode(mode) {
 }
 
 function updateDistance(state) {
-  const d = Number(state && state.distance_mm);
-  const radius = Math.max(1, Number(state && state.active_radius_mm) || 30);
+  const teamState = teamGameState(state);
+  const d = Number(teamState.distance_mm ?? (state && state.distance_mm));
+  const radius = Math.max(1, Number(teamState.active_radius_mm ?? (state && state.active_radius_mm)) || 30);
   const out = el('distanceValue');
   if (!Number.isFinite(d)) {
     out.textContent = '-- mm';
@@ -898,8 +825,9 @@ function updateDistance(state) {
 function applyGameState(state) {
   const priorPhase = game && game.phase;
   game = state || {};
-  const active = game.active_team === TEAM;
+  const active = teamIsActive(game);
   const phase = game.phase || 'setup';
+  const ownResult = ownRoundResult(game);
   assignedPlayerName = cleanName(game && game.players && game.players[TEAM]);
   if (assignedPlayerName && !cleanName(el('playerNameInput').value)) {
     el('playerNameInput').value = assignedPlayerName;
@@ -924,6 +852,9 @@ function applyGameState(state) {
     el('clockLabel').textContent = 'Start';
     startTopCountdown(startsAt, serverNow);
     setScreenOverlay('Get Ready', true);
+  } else if (phase === 'running' && active && ownResult && ownResult.state === 'won') {
+    showWin(ownResult);
+    el('armStatus').textContent = 'You won. The other team may continue until time ends.';
   } else if (phase === 'running' && active) {
     stopTopCountdown();
     el('clockLabel').textContent = 'Time left';
@@ -937,9 +868,10 @@ function applyGameState(state) {
     if (priorPhase === 'countdown') showGoBriefly();
     else if (!gameOverShown) el('playerCountdownOverlay').hidden = true;
   } else if (phase === 'ended' && active) {
-    showGameOver();
+    if (ownResult && ownResult.state === 'won') showWin(ownResult);
+    else showGameOver();
   } else if (phase === 'won' && active) {
-    showWin(game.round_result || null);
+    showWin(ownResult || game.round_result || null);
   } else {
     gameOverShown = false;
     winShown = false;
@@ -949,9 +881,9 @@ function applyGameState(state) {
     el('countdown').textContent = '--';
     el('playerCountdownOverlay').hidden = true;
   }
-  el('pickupState').textContent = game.pickup_state || 'Waiting';
+  el('pickupState').textContent = teamGameState(game).pickup_state || game.pickup_state || 'Waiting';
   updateDistance(game);
-  if (playerReady) {
+  if (playerReady && nameSubmitted) {
     showGameShell();
   } else {
     el('readyButton').disabled = !relayReady;
@@ -964,7 +896,7 @@ function applyGameState(state) {
       setControlLock();
     }
     if (phase === 'setup') lastRunKey = '';
-    el('armStatus').textContent = phase === 'won' && active
+    el('armStatus').textContent = ownResult && ownResult.state === 'won'
       ? 'You won. Waiting for reset.'
       : phase === 'ended' && active
         ? 'Round ended. Waiting for reset.'
@@ -981,19 +913,8 @@ async function init() {
   renderPlayerNameOptions();
   el('namePanel').addEventListener('submit', submitPlayerName);
   el('playerNameInput').addEventListener('input', renderPlayerNameOptions);
-  el('originVideo').addEventListener('click', showFirstIntroText);
-  el('originVideo').addEventListener('ended', showFirstIntroText);
-  el('originVideo').addEventListener('error', showFirstIntroText);
-  el('missionStartButton').addEventListener('click', () => {
-    const name = cleanName(assignedPlayerName || el('playerNameInput').value);
-    if (name) markFirstIntroComplete(name);
-    startLevelIntro();
-  });
   el('readyButton').addEventListener('click', markReady);
   el('relayConnectButton').addEventListener('click', connectRelayForBriefing);
-  el('introVideo').addEventListener('click', showMissionText);
-  el('introVideo').addEventListener('ended', showMissionText);
-  el('introVideo').addEventListener('error', showMissionText);
   startWebcamStream();
   el('webcamFeed').onerror = () => setTimeout(startWebcamStream, 1000);
 
@@ -1009,8 +930,9 @@ async function init() {
   setControlLock();
 
   try { applyGameState(await jsonFetch(`${GM}/api/state`)); } catch (_) {}
-  const gameEvents = new EventSource(`${GM}/api/events`);
-  gameEvents.onmessage = e => { try { applyGameState(JSON.parse(e.data)); } catch (_) {} };
+  setInterval(async () => {
+    try { applyGameState(await jsonFetch(`${GM}/api/state`)); } catch (_) {}
+  }, 700);
 
   const armEvents = new EventSource(`${JOINT}/api/events`);
   armEvents.onmessage = e => {

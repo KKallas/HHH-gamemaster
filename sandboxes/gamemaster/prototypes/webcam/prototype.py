@@ -77,6 +77,7 @@ TAG_DICT = cv2.aruco.DICT_4X4_50
 PROMOTE_SECS = 1.0       # seen this long (continuously) before it's tracked
 DROP_SECS = 3.0          # removed this long after it goes missing
 STREAK_GRACE = 0.5       # a gap longer than this restarts the qualifying clock
+DETECTION_HOLD_SECS = 10.0  # keep one-shot reads long enough for game clients
 DETECT_MAX_W = 960       # downscale wide frames for fast detection (coords rescaled)
 
 _aruco_dict = cv2.aruco.getPredefinedDictionary(TAG_DICT)
@@ -153,7 +154,7 @@ class TagTracker:
             for mid in list(self._tags):
                 rec = self._tags[mid]
                 age = now - rec["last_seen"]
-                if (rec["tracked"] and age > DROP_SECS) or (not rec["tracked"] and age > STREAK_GRACE):
+                if (rec["tracked"] and age > DROP_SECS) or (not rec["tracked"] and age > DETECTION_HOLD_SECS):
                     del self._tags[mid]
 
     def tags(self, now):
@@ -183,7 +184,7 @@ class TagTracker:
             out = []
             for rec in self._tags.values():
                 missing = now - rec["last_seen"]
-                if missing > STREAK_GRACE:
+                if missing > DETECTION_HOLD_SECS:
                     continue
                 out.append({
                     "id": rec["id"],
@@ -258,6 +259,8 @@ class CameraManager:
         self._last_ts = 0.0
         self._error = None         # last open/read error, for the UI
         self._rotate = False       # rotate every frame 180° (display + detection)
+        self._last_detections = {}
+        self._last_detections_at = 0.0
         self._no_signal = _placeholder("No camera selected")
 
     # -- lifecycle ------------------------------------------------------------
@@ -363,6 +366,23 @@ class CameraManager:
         now = time.monotonic()
         dets = _detect(frame)
         _tracker.update(dets, now)
+        with self._lock:
+            if dets:
+                self._last_detections = {
+                    int(mid): {
+                        "id": int(mid),
+                        "x": float(d["x"]),
+                        "y": float(d["y"]),
+                        "nx": float(d["nx"]),
+                        "ny": float(d["ny"]),
+                        "rot": float(d["rot"]),
+                        "corners": np.array(d["corners"], copy=True),
+                    }
+                    for mid, d in dets.items()
+                }
+                self._last_detections_at = now
+            elif now - self._last_detections_at > DETECTION_HOLD_SECS:
+                self._last_detections = {}
         tracked = {t["id"] for t in _tracker.tags(now)}
         for mid, d in dets.items():
             color = (0, 220, 0) if mid in tracked else (0, 190, 255)  # BGR
@@ -393,6 +413,29 @@ class CameraManager:
                 "backend": "AVFoundation" if sys.platform == "darwin"
                 else ("DirectShow" if sys.platform.startswith("win") else "default"),
             }
+
+    def detections(self, now):
+        """Immediate reads from the same detections used to draw the MJPEG overlay."""
+        with self._lock:
+            missing = now - self._last_detections_at
+            if missing > DETECTION_HOLD_SECS:
+                return []
+            out = []
+            for rec in self._last_detections.values():
+                out.append({
+                    "id": rec["id"],
+                    "x": round(rec["x"], 1), "y": round(rec["y"], 1),
+                    "nx": round(rec["nx"], 4), "ny": round(rec["ny"], 4),
+                    "rotation": round(rec["rot"], 1),
+                    "missing": round(missing, 2),
+                    "tracked": any(t["id"] == rec["id"] for t in _tracker.tags(now)),
+                    "corners": [
+                        [round(float(x), 1), round(float(y), 1)]
+                        for x, y in rec.get("corners", [])
+                    ],
+                })
+            out.sort(key=lambda t: t["id"])
+            return out
 
     def active_index(self):
         with self._lock:
@@ -541,7 +584,7 @@ def _events_dict():
     return {
         "status": st,
         "tags": _tracker.tags(now),
-        "detections": _tracker.detections(now),
+        "detections": _mgr.detections(now),
     }
 
 
@@ -559,10 +602,11 @@ def api_tags():
     now = time.monotonic()
     return jsonify({
         "tags": _tracker.tags(now),
-        "detections": _tracker.detections(now),
+        "detections": _mgr.detections(now),
         "dict": "DICT_4X4_50",
         "promote_secs": PROMOTE_SECS,
         "drop_secs": DROP_SECS,
+        "detection_hold_secs": DETECTION_HOLD_SECS,
     })
 
 

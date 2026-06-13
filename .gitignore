@@ -15,6 +15,9 @@ hub-config.json
 # import staging/backup folders
 sandboxes/*/prototypes.prev/
 sandboxes/*/.import-new/
+# generated game score logs
+high-score-log.jsonl
+sandboxes/*/prototypes/*/high-score-log.jsonl
 
 # ---- OS / editor ----
 .DS_Store

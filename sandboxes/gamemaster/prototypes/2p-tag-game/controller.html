@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2P Tag Game - Gamemaster</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef;
+    --muted:#8a93a6; --accent:#4f9dff; --ok:#36c46b; --err:#ff5462;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background: var(--bg); color: var(--txt); line-height: 1.4; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header a { color: var(--accent); }
+  main { max-width: 920px; margin: 0 auto; padding: 20px; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt);
+    padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color:#fff; }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; margin-bottom:16px; }
+  .panel h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted); margin:0 0 12px; display:flex; justify-content:space-between; align-items:center; }
+  .hint { color:var(--muted); font-size:12px; margin:10px 0 0; }
+  .hint b { color:var(--txt); }
+  #status { color: var(--muted); font-size:12px; margin-left:auto; }
+  #status.err { color: var(--err); }
+  #status.ok { color: var(--ok); }
+</style>
+  <link rel="stylesheet" href="/theme.css" />
+</head>
+<body>
+<header>
+  <h1>2P Tag Game - Gamemaster</h1>
+  <span class="sub">referee/operator flow for the two-player camera-confirmed tag game · zones live on the
+    <a href="#" id="playfieldLink" target="_blank">playfield</a></span>
+</header>
+<main>
+  <section class="panel" id="gameFlow">
+    <h2><span>Game flow</span></h2>
+    <div class="bar">
+      <button id="setupGame">Reset to 2P tag game areas</button>
+      <button class="primary" id="openGame">Go to game screen</button>
+      <span id="status">…</span>
+    </div>
+    <p class="hint"><b>Reset to 2P tag game areas</b> replaces the playfield with
+      the two start areas and two interchanged target areas. The purple team starts
+      on the purple side and targets the green side; the green team starts on the
+      green side and targets the purple side.</p>
+  </section>
+</main>
+
+<script>
+// The zones this game uses belong to the playfield-areas prototype, so all
+// area calls go to its mount; only the game page itself is served from here.
+const BASE = location.pathname.replace(/\/[^/]*$/, '/');
+const U = p => BASE + p.replace(/^\//, '');
+// Machines are mounted at /s/<sandbox>/p/<slug>; keep the sandbox prefix.
+const SANDBOX_ROOT = location.pathname.replace(/\/p\/.*$/, '');
+const PLAYFIELD = p => location.origin + SANDBOX_ROOT + '/p/playfield-areas' + p;
+document.getElementById('playfieldLink').href = SANDBOX_ROOT + '/p/playfield-areas/controller';
+
+const statusEl = document.getElementById('status');
+function status(msg, cls = '') {
+  statusEl.textContent = msg;
+  statusEl.className = cls;
+}
+
+const GAME_AREAS = [
+  { name: 'purple-start', x: -6.4, y: 0, z: 0, size: 3.0, color: '#b86bff', glow: 1.9, marker: 0,
+    show_area: true, show_aruco: false, show_links: false },
+  { name: 'green-start', x: 5.4, y: 0, z: 0, size: 3.0, color: '#35d07f', glow: 2.3, marker: 0,
+    show_area: true, show_aruco: false, show_links: false },
+  { name: 'purple-target', x: 5.4, y: 0, z: 0, size: 3.0, color: '#35d07f', glow: 2.3, marker: 0,
+    show_area: true, show_aruco: false, show_links: false },
+  { name: 'green-target', x: -6.4, y: 0, z: 0, size: 3.0, color: '#b86bff', glow: 1.9, marker: 0,
+    show_area: true, show_aruco: false, show_links: false },
+];
+
+document.getElementById('openGame').onclick = () => { location.href = U('game'); };
+
+document.getElementById('setupGame').onclick = async () => {
+  status('resetting…');
+  try {
+    const state = await (await fetch(PLAYFIELD('/api/state'))).json();
+    await Promise.all(state.areas.map(area =>
+      fetch(PLAYFIELD(`/api/areas/${area.id}`), { method: 'DELETE' })));
+    for (const spec of GAME_AREAS) {
+      await fetch(PLAYFIELD('/api/areas'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(spec),
+      });
+    }
+    refresh();
+  } catch (_) {
+    status('playfield offline', 'err');
+  }
+};
+
+// Status line: are the game zones in place on the playfield?
+function applyState(data) {
+  const names = new Set((data.areas || []).map(a => a.name));
+  const ready = GAME_AREAS.every(a => names.has(a.name));
+  status(ready ? '2P start + target zones ready' : 'zones not set - reset to 2P tag game areas',
+         ready ? 'ok' : '');
+}
+async function refresh() {
+  try { applyState(await (await fetch(PLAYFIELD('/api/state'))).json()); }
+  catch (_) { status('playfield offline', 'err'); }
+}
+
+refresh();
+const es = new EventSource(PLAYFIELD('/api/events'));   // live pushes from the playfield
+es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch (_) {} };
+es.onerror = () => status('playfield offline', 'err');
+</script>
+</body>
+</html>
