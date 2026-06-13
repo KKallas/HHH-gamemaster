@@ -11,18 +11,29 @@
     --line: rgba(255, 255, 255, 0.22);
     --pickup: #4f9dff;
     --deposit: #35d07f;
+    --purple: #b86bff;
+    --green: #35d07f;
+    --panel: rgba(2, 3, 4, 0.78);
   }
   * { box-sizing: border-box; }
   html, body {
     margin: 0;
-    height: 100%;
-    overflow: hidden;
+    min-height: 100%;
+    overflow: auto;
     background: var(--bg);
     color: var(--txt);
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   }
+  #cameraStage {
+    position: relative;
+    height: min(72vh, 760px);
+    min-height: 430px;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    background: #000;
+  }
   #webcamFeed {
-    position: fixed;
+    position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
@@ -30,13 +41,13 @@
     background: #000;
   }
   #areaOverlay {
-    position: fixed;
+    position: absolute;
     z-index: 1;
     inset: 0;
     pointer-events: none;
   }
   .radiusBox {
-    position: fixed;
+    position: absolute;
     display: none;
     border: 3px solid var(--deposit);
     border-radius: 999px;
@@ -46,7 +57,7 @@
       inset 0 0 22px color-mix(in srgb, var(--deposit) 52%, transparent);
   }
   #timer {
-    position: fixed;
+    position: absolute;
     z-index: 2;
     top: 18px;
     left: 50%;
@@ -64,26 +75,11 @@
     font-variant-numeric: tabular-nums;
     backdrop-filter: blur(10px);
   }
-  #restartButton {
-    position: fixed;
-    z-index: 3;
-    top: 18px;
-    right: 18px;
-    padding: 0 14px;
-    min-height: 44px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: rgba(2, 3, 4, 0.64);
-    color: var(--txt);
-    font-size: 14px;
-    line-height: 1;
-    backdrop-filter: blur(10px);
-  }
   #armStatus {
-    position: fixed;
+    position: absolute;
     z-index: 2;
     left: 18px;
-    top: 122px;
+    bottom: 18px;
     width: min(360px, calc(100vw - 36px));
     padding: 12px;
     border: 1px solid var(--line);
@@ -113,22 +109,143 @@
     font-weight: 850;
   }
   #setup {
-    position: fixed;
+    position: relative;
     z-index: 3;
-    left: 50%;
-    bottom: 24px;
-    translate: -50% 0;
-    width: min(92vw, 440px);
+    left: auto;
+    bottom: auto;
+    translate: 0;
+    width: min(calc(100vw - 12px), 1460px);
     display: grid;
-    gap: 12px;
-    padding: 16px;
+    gap: 14px;
+    margin: 10px auto 18px;
+    padding: 14px;
     border: 1px solid var(--line);
     border-radius: 8px;
-    background: rgba(2, 3, 4, 0.78);
+    background: var(--panel);
     box-shadow: 0 16px 54px rgba(0, 0, 0, 0.42);
     backdrop-filter: blur(12px);
   }
   #setup.hidden { display: none; }
+  .gmHeader,
+  .gmActions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .gmActions {
+    width: min(calc(100vw - 12px), 1460px);
+    margin: 12px auto 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(12px);
+  }
+  .gmTitle {
+    display: grid;
+    gap: 2px;
+  }
+  .eyebrow {
+    color: rgba(244, 247, 251, 0.62);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.1;
+  }
+  #liveStatsOverlay {
+    position: absolute;
+    z-index: 2;
+    right: 18px;
+    bottom: 18px;
+    width: min(360px, calc(100vw - 36px));
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 3, 4, 0.64);
+    color: rgba(244, 247, 251, 0.86);
+    backdrop-filter: blur(10px);
+  }
+  .statTile {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .statTile .statLabel {
+    color: rgba(244, 247, 251, 0.58);
+    font-size: 11px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+  .statTile .statValue {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: rgba(244, 247, 251, 0.92);
+    font-size: 18px;
+    font-weight: 850;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .statTile.win .statValue { color: var(--deposit); }
+  .statTile.picked .statValue { color: var(--pickup); }
+  .statTile.warn .statValue { color: #ffca6b; }
+  .statTile.ready .statValue { color: var(--deposit); }
+  #gameStatePill {
+    min-width: 86px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: rgba(244, 247, 251, 0.82);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+  #gameStatePill.running { border-color: var(--pickup); color: var(--pickup); }
+  #gameStatePill.countdown { border-color: #ffca6b; color: #ffca6b; }
+  #gameStatePill.won { border-color: var(--deposit); color: var(--deposit); }
+  #gameStatePill.ended { border-color: #ffca6b; color: #ffca6b; }
+  .gmGrid {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.05fr) minmax(240px, 0.95fr) minmax(340px, 1.3fr);
+    gap: 12px;
+  }
+  .gmColumn {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .gmColumn h2 {
+    margin: 0;
+    color: rgba(244, 247, 251, 0.66);
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  .fieldGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
   .field {
     display: grid;
     gap: 6px;
@@ -172,58 +289,261 @@
     font-weight: 800;
     cursor: pointer;
   }
+  button.secondary {
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--txt);
+  }
   button:disabled {
     cursor: wait;
     opacity: 0.44;
+  }
+  .relayStatus {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    color: #ff4d5d;
+    font-size: 13px;
+    font-weight: 900;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .relayStatus.on {
+    color: var(--deposit);
+  }
+  #startButton {
+    min-width: 132px;
+  }
+  #clearAlarmButton {
+    min-width: 184px;
   }
   #confirmDepositButton {
     background: var(--deposit);
     color: #00160b;
   }
   #setupStatus {
+    flex: 1 1 260px;
     min-height: 20px;
     color: rgba(244, 247, 251, 0.76);
     font-size: 14px;
     line-height: 1.35;
   }
+  .progressMeta {
+    display: grid;
+    gap: 8px;
+  }
+  #progressText {
+    color: rgba(244, 247, 251, 0.82);
+    font-size: 14px;
+    font-weight: 750;
+  }
+  .progressTrack {
+    height: 9px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+  }
+  #progressFill {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--purple), var(--green));
+    transition: width 0.16s linear;
+  }
+  .liveTiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .scoreTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+  .scoreTable th,
+  .scoreTable td {
+    padding: 6px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .scoreTable th {
+    color: rgba(244, 247, 251, 0.56);
+    font-weight: 800;
+  }
+  .scoreTable td:first-child {
+    color: rgba(244, 247, 251, 0.92);
+    font-weight: 800;
+  }
+  .teamLabel {
+    display: inline-block;
+    min-width: 48px;
+    font-weight: 850;
+  }
+  .teamLabel.purple { color: var(--purple); }
+  .teamLabel.green { color: var(--green); }
+  #highScoreEmpty {
+    color: rgba(244, 247, 251, 0.58);
+    font-size: 13px;
+  }
+  @media (max-width: 920px) {
+    #cameraStage { height: 62vh; min-height: 360px; }
+    #liveStatsOverlay {
+      right: 12px;
+      bottom: 12px;
+      width: min(320px, calc(50vw - 18px));
+    }
+    #armStatus {
+      left: 12px;
+      bottom: 12px;
+      width: min(320px, calc(50vw - 18px));
+    }
+    #setup {
+      width: calc(100vw - 24px);
+      margin: 12px auto;
+    }
+    .gmActions { width: calc(100vw - 24px); }
+    .gmGrid { grid-template-columns: 1fr; }
+    .fieldGrid { grid-template-columns: 1fr; }
+    .liveTiles { grid-template-columns: 1fr; }
+    .gmHeader, .gmActions { align-items: stretch; flex-direction: column; }
+    #gameStatePill { align-self: flex-start; }
+  }
+  @media (max-width: 680px) {
+    #cameraStage { min-height: 540px; }
+    #timer {
+      top: 12px;
+      font-size: 46px;
+    }
+    #armStatus,
+    #liveStatsOverlay {
+      left: 12px;
+      right: auto;
+      width: calc(100vw - 24px);
+    }
+    #armStatus {
+      top: auto;
+      bottom: 154px;
+    }
+    #liveStatsOverlay {
+      top: auto;
+      bottom: 12px;
+    }
+  }
 </style>
   <link rel="stylesheet" href="/theme.css" />
 </head>
 <body>
-<img id="webcamFeed" alt="webcam feed with detected tags" />
-<div id="areaOverlay" aria-hidden="true">
-  <div id="activeAreaOverlay" class="radiusBox"></div>
-</div>
-<div id="timer">90</div>
-<section id="armStatus" aria-label="robot arm scoring status">
-  <div class="row"><span class="label">Target</span><span id="targetCoords" class="value">not saved</span></div>
-  <div class="row"><span class="label">Arm</span><span id="armCoords" class="value">waiting</span></div>
-  <div class="row"><span class="label">Distance</span><span id="distanceStatus" class="value">-- / -- mm</span></div>
-  <div class="row"><span class="label">Suction</span><span id="suctionStatus" class="value">waiting</span></div>
-  <div class="row"><span class="label">Player</span><span id="playerStatus" class="value">not set</span></div>
-  <div class="row"><span class="label">Stats</span><span id="statsStatus" class="value">0 rounds</span></div>
-</section>
-<button id="restartButton" type="button">Restart</button>
-<section id="setup" aria-label="tag game setup">
-  <div class="field">
-    <label for="playerNameInput">Player name</label>
-    <input id="playerNameInput" type="text" maxlength="32" autocomplete="name" />
+<section id="cameraStage" aria-label="camera feed">
+  <img id="webcamFeed" alt="webcam feed with detected tags" />
+  <div id="areaOverlay" aria-hidden="true">
+    <div id="activeAreaOverlay" class="radiusBox"></div>
   </div>
-  <div class="field">
-    <label for="tagInput">Tracked ArUco tag number</label>
-    <input id="tagInput" type="number" inputmode="numeric" min="0" max="105" step="1" />
-  </div>
-  <div class="field">
-    <label for="radiusRange">Active area radius</label>
-    <div class="radiusControls">
-      <input id="radiusRange" type="range" min="10" max="120" step="1" />
-      <input id="radiusInput" type="number" inputmode="numeric" min="10" max="120" step="1" />
+  <div id="timer">90</div>
+  <section id="armStatus" aria-label="robot arm scoring status">
+    <div class="row"><span class="label">Target</span><span id="targetCoords" class="value">not saved</span></div>
+    <div class="row"><span class="label">Arm</span><span id="armCoords" class="value">waiting</span></div>
+    <div class="row"><span class="label">Distance</span><span id="distanceStatus" class="value">-- / -- mm</span></div>
+    <div class="row"><span class="label">Suction</span><span id="suctionStatus" class="value">waiting</span></div>
+    <div class="row"><span class="label">Entry</span><span id="playerStatus" class="value">not set</span></div>
+    <div class="row"><span class="label">Stats</span><span id="statsStatus" class="value">0 rounds</span></div>
+  </section>
+  <section id="liveStatsOverlay" aria-label="live game stats overlay">
+    <div id="distanceOverlayTile" class="statTile">
+      <span class="statLabel">Distance to target</span>
+      <span id="distanceOverlayValue" class="statValue">-- / -- mm</span>
     </div>
-  </div>
-  <button id="showCalibrationTargetButton" type="button">Turn on target for calibration</button>
-  <button id="confirmDepositButton" type="button">Confirm robot at green center</button>
+    <div id="pickupOverlayTile" class="statTile">
+      <span class="statLabel">Tag pickup</span>
+      <span id="pickupOverlayValue" class="statValue">Waiting</span>
+    </div>
+  </section>
+</section>
+<div class="gmActions">
+  <div id="relayStatus" class="relayStatus off">MG400 Relay</div>
   <button id="startButton" type="button" disabled>Start game</button>
+  <button id="restartButton" class="secondary" type="button">Reset round</button>
+  <button id="clearAlarmButton" class="secondary" type="button" disabled>Clear alarm and warning</button>
   <div id="setupStatus" aria-live="polite">Move the robot to the green center and confirm.</div>
+</div>
+<section id="setup" aria-label="gamemaster control desk">
+  <div class="gmHeader">
+    <div class="gmTitle">
+      <div class="eyebrow">Gamemaster position</div>
+    </div>
+    <div id="gameStatePill">Setup</div>
+  </div>
+  <div class="gmGrid">
+    <section class="gmColumn" aria-label="game configuration">
+      <h2>Configuration</h2>
+      <div class="fieldGrid">
+        <div class="field">
+          <label for="teamSelect">Team</label>
+          <select id="teamSelect">
+            <option value="purple">Purple team</option>
+            <option value="green">Green team</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="playerNameInput">Player name</label>
+          <input id="playerNameInput" type="text" maxlength="32" autocomplete="name" />
+        </div>
+      </div>
+      <div class="fieldGrid">
+        <div class="field">
+          <label for="tagInput">Tracked ArUco tag number</label>
+          <input id="tagInput" type="number" inputmode="numeric" min="0" max="105" step="1" />
+        </div>
+        <div class="field">
+          <label for="radiusRange">Active area radius</label>
+          <div class="radiusControls">
+            <input id="radiusRange" type="range" min="10" max="120" step="1" />
+            <input id="radiusInput" type="number" inputmode="numeric" min="10" max="120" step="1" />
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="gmColumn" aria-label="calibration">
+      <h2>Calibration</h2>
+      <button id="showCalibrationTargetButton" type="button">Turn on calibration target</button>
+      <button id="confirmDepositButton" type="button">Confirm robot at green center</button>
+    </section>
+    <section class="gmColumn" aria-label="game monitor">
+      <h2>Live monitor</h2>
+      <div class="progressMeta">
+        <div id="progressText">Ready for setup</div>
+        <div class="progressTrack" aria-hidden="true"><div id="progressFill"></div></div>
+      </div>
+      <div class="liveTiles">
+        <div id="distanceLiveTile" class="statTile">
+          <span class="statLabel">Distance</span>
+          <span id="distanceLiveValue" class="statValue">-- / -- mm</span>
+        </div>
+        <div id="pickupLiveTile" class="statTile">
+          <span class="statLabel">Pickup</span>
+          <span id="pickupLiveValue" class="statValue">Waiting</span>
+        </div>
+        <div id="readyLiveTile" class="statTile">
+          <span class="statLabel">Player ready</span>
+          <span id="readyLiveValue" class="statValue">Waiting</span>
+        </div>
+        <div id="runsLiveTile" class="statTile">
+          <span class="statLabel">Runs started</span>
+          <span id="runsLiveValue" class="statValue">0</span>
+        </div>
+      </div>
+      <table class="scoreTable" aria-label="current high scores">
+        <thead>
+          <tr><th>Player</th><th>Team</th><th>Best</th><th>Wins</th></tr>
+        </thead>
+        <tbody id="highScoreRows"></tbody>
+      </table>
+      <div id="highScoreEmpty">No completed wins yet.</div>
+    </section>
+  </div>
 </section>
 
 <script>
@@ -235,6 +555,7 @@ const ABS = p => location.origin + SANDBOX_ROOT + p;
 const PLAYFIELD = p => ABS('/p/playfield-areas' + p);
 
 const ROUND_SECONDS = 90;
+const COUNTDOWN_SECONDS = 5;
 const WORLD_SIZE = 24;
 const AREA_SIZE = 3.0;
 const CAMERA_POLL_MS = 180;
@@ -248,27 +569,46 @@ const MAX_ACTIVE_RADIUS_MM = 120;
 const TAG_VISIBLE_GRACE_MS = 2500;
 const TAG_BLOCKED_REVEAL_MS = 3000;
 const STATS_HISTORY_LIMIT = 24;
-const PLAYER_ARM_SIDE = 'purple';
 const CONFIG_KEY = 'tag-game-config';
 
 const timerEl = document.getElementById('timer');
+const gameStatePill = document.getElementById('gameStatePill');
 const targetCoordsEl = document.getElementById('targetCoords');
 const armCoordsEl = document.getElementById('armCoords');
 const distanceStatusEl = document.getElementById('distanceStatus');
 const suctionStatusEl = document.getElementById('suctionStatus');
 const playerStatusEl = document.getElementById('playerStatus');
 const statsStatusEl = document.getElementById('statsStatus');
+const progressText = document.getElementById('progressText');
+const progressFill = document.getElementById('progressFill');
+const distanceOverlayTile = document.getElementById('distanceOverlayTile');
+const distanceOverlayValue = document.getElementById('distanceOverlayValue');
+const pickupOverlayTile = document.getElementById('pickupOverlayTile');
+const pickupOverlayValue = document.getElementById('pickupOverlayValue');
+const distanceLiveTile = document.getElementById('distanceLiveTile');
+const distanceLiveValue = document.getElementById('distanceLiveValue');
+const pickupLiveTile = document.getElementById('pickupLiveTile');
+const pickupLiveValue = document.getElementById('pickupLiveValue');
+const readyLiveTile = document.getElementById('readyLiveTile');
+const readyLiveValue = document.getElementById('readyLiveValue');
+const runsLiveValue = document.getElementById('runsLiveValue');
+const highScoreRows = document.getElementById('highScoreRows');
+const highScoreEmpty = document.getElementById('highScoreEmpty');
+const cameraStage = document.getElementById('cameraStage');
 const webcamFeed = document.getElementById('webcamFeed');
+const areaOverlay = document.getElementById('areaOverlay');
 const activeAreaOverlay = document.getElementById('activeAreaOverlay');
 const restartButton = document.getElementById('restartButton');
-const setupEl = document.getElementById('setup');
+const teamSelect = document.getElementById('teamSelect');
 const playerNameInput = document.getElementById('playerNameInput');
 const tagInput = document.getElementById('tagInput');
 const radiusRange = document.getElementById('radiusRange');
 const radiusInput = document.getElementById('radiusInput');
 const showCalibrationTargetButton = document.getElementById('showCalibrationTargetButton');
 const confirmDepositButton = document.getElementById('confirmDepositButton');
+const relayStatusEl = document.getElementById('relayStatus');
 const startButton = document.getElementById('startButton');
+const clearAlarmButton = document.getElementById('clearAlarmButton');
 const setupStatus = document.getElementById('setupStatus');
 
 const PICKUP_AREA = {
@@ -301,10 +641,13 @@ let pickupArea = null;
 let depositArea = null;
 let startedAt = 0;
 let finishedAt = 0;
+let countdownEndsAt = 0;
+let roundStarting = false;
 let lastSentSize = AREA_SIZE;
 let gameState = 'setup';
 let selectedTag = null;
 let selectedTagSeenAt = 0;
+let preStartTagConfirmed = false;
 let latestRobotStatus = null;
 let hadSuctionDuringRun = false;
 let targetAreaVisible = false;
@@ -319,11 +662,18 @@ let tagId = config.tagId;
 let activeRadiusMm = config.activeRadiusMm;
 let invertX = config.invertX;
 let invertY = config.invertY;
+let activeTeam = config.activeTeam;
 let playerName = config.playerName;
 let statsByPlayer = config.statsByPlayer;
 let depositCenterPose = config.depositCenterPose;
 let depositOverlayCalibration = config.depositOverlayCalibration;
 let depositCenterConfirmed = !!depositCenterPose;
+let currentPickupText = 'Waiting';
+let lastDistanceMm = null;
+let lastTelemetryPublishAt = 0;
+let playerNameEditing = false;
+let playersReady = { purple: false, green: false };
+let relayConnected = { purple: false, green: false };
 
 function loadConfig() {
   try {
@@ -333,6 +683,7 @@ function loadConfig() {
       activeRadiusMm: clampInt(cfg.activeRadiusMm, MIN_ACTIVE_RADIUS_MM, MAX_ACTIVE_RADIUS_MM, DEFAULT_ACTIVE_RADIUS_MM),
       invertX: !!cfg.invertX,
       invertY: !!cfg.invertY,
+      activeTeam: normalizeTeam(cfg.activeTeam || cfg.team || 'purple'),
       playerName: cleanPlayerName(cfg.playerName),
       statsByPlayer: normalizeStatsMap(cfg.statsByPlayer),
       depositCenterPose: poseFromStorage(cfg.depositCenterPose),
@@ -349,6 +700,7 @@ function defaultConfig() {
     activeRadiusMm: DEFAULT_ACTIVE_RADIUS_MM,
     invertX: false,
     invertY: false,
+    activeTeam: 'purple',
     playerName: '',
     statsByPlayer: {},
     depositCenterPose: null,
@@ -362,6 +714,7 @@ function saveConfig() {
     activeRadiusMm,
     invertX,
     invertY,
+    activeTeam,
     playerName,
     statsByPlayer,
     depositCenterPose: poseForStorage(depositCenterPose),
@@ -377,6 +730,28 @@ function clampInt(value, min, max, fallback) {
 
 function cleanPlayerName(value) {
   return String(value || '').trim().slice(0, 32);
+}
+
+function normalizeTeam(value) {
+  return value === 'green' ? 'green' : 'purple';
+}
+
+function teamPlayerKey(team, name) {
+  const cleanName = cleanPlayerName(name);
+  return cleanName ? `${normalizeTeam(team)}:${cleanName}` : '';
+}
+
+function scoreEntryFromKey(key, stats) {
+  const text = String(key || '');
+  const splitAt = text.indexOf(':');
+  const team = splitAt > 0 ? normalizeTeam(text.slice(0, splitAt)) : '';
+  const name = splitAt > 0 ? text.slice(splitAt + 1) : text;
+  return {
+    key: text,
+    team,
+    name: cleanPlayerName(name) || text,
+    stats,
+  };
 }
 
 function poseForStorage(pose) {
@@ -413,6 +788,7 @@ function overlayCalibrationFromStorage(value) {
 
 function emptyStats() {
   return {
+    starts: 0,
     rounds: 0,
     wins: 0,
     losses: 0,
@@ -434,6 +810,7 @@ function finiteStoredNumber(value) {
 function normalizeStats(raw) {
   const stats = emptyStats();
   if (!raw || typeof raw !== 'object') return stats;
+  stats.starts = clampInt(raw.starts, 0, 99999, raw.rounds || 0);
   stats.rounds = clampInt(raw.rounds, 0, 99999, 0);
   stats.wins = clampInt(raw.wins, 0, 99999, 0);
   stats.losses = clampInt(raw.losses, 0, 99999, 0);
@@ -481,9 +858,45 @@ async function crossRequest(path, opts = {}) {
   return res.json();
 }
 
+function operatorPatch(body) {
+  return crossRequest('/p/tag-game/api/operator', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+}
+
+function operatorStatePayload(extra = {}) {
+  return {
+    phase: gameState,
+    active_team: activeTeam,
+    players: { [activeTeam]: playerName },
+    tag_id: tagId,
+    active_radius_mm: activeRadiusMm,
+    target_pose: poseForStorage(depositCenterPose),
+    distance_mm: Number.isFinite(lastDistanceMm) ? lastDistanceMm : null,
+    pickup_state: currentPickupText,
+    ...extra,
+  };
+}
+
+function publishOperatorState(extra = {}, force = false) {
+  const now = performance.now();
+  if (!force && now - lastTelemetryPublishAt < 350) return;
+  lastTelemetryPublishAt = now;
+  operatorPatch(operatorStatePayload(extra));
+}
+
 async function cameraTags() {
   const data = await crossRequest('/p/webcam/api/tags');
-  return Array.isArray(data.tags) ? data.tags : [];
+  const merged = new Map();
+  for (const tag of [
+    ...(Array.isArray(data.tags) ? data.tags : []),
+    ...(Array.isArray(data.detections) ? data.detections : []),
+  ]) {
+    if (tag && tag.id !== undefined && tag.id !== null) merged.set(Number(tag.id), tag);
+  }
+  return [...merged.values()];
 }
 
 async function robotStatus() {
@@ -499,12 +912,31 @@ async function robotStatus() {
   return latestRobotStatus;
 }
 
+async function clearActiveArmErrors() {
+  clearAlarmButton.disabled = true;
+  setupStatus.textContent = `Clearing ${capitalize(activeTeam)} arm alarm and warning...`;
+  try {
+    const result = await crossRequest('/p/dobot-mg400-relay/api/clear_error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ side: activeTeam }),
+    });
+    if (!result || result.ok === false) throw new Error(result && result.error || 'clear failed');
+    setupStatus.textContent = `${capitalize(activeTeam)} arm alarm and warning cleared.`;
+    await robotStatus().catch(() => null);
+  } catch (err) {
+    setupStatus.textContent = `Clear failed: ${err.message}`;
+  } finally {
+    updateRelayDisplay();
+  }
+}
+
 function relayArmStatus(relay) {
   const arms = relay && relay.arms || {};
-  const preferred = arms[PLAYER_ARM_SIDE];
+  const preferred = arms[activeTeam];
   const preferredPose = robotPoseFromArm(preferred);
   if (preferred && (preferred.connected || preferredPose || preferred.target)) {
-    return { ...preferred, side: PLAYER_ARM_SIDE, source: 'relay' };
+    return { ...preferred, side: activeTeam, source: 'relay' };
   }
   for (const side of ['purple', 'green']) {
     const arm = arms[side];
@@ -512,7 +944,7 @@ function relayArmStatus(relay) {
       return { ...arm, side, source: 'relay' };
     }
   }
-  return preferred ? { ...preferred, side: PLAYER_ARM_SIDE, source: 'relay' } : null;
+  return preferred ? { ...preferred, side: activeTeam, source: 'relay' } : null;
 }
 
 function robotPoseFromArm(arm) {
@@ -579,26 +1011,85 @@ function pumpLabel(status) {
   return mode || 'waiting';
 }
 
+function setTileState(tile, state) {
+  tile.classList.toggle('win', state === 'win');
+  tile.classList.toggle('picked', state === 'picked');
+  tile.classList.toggle('warn', state === 'warn');
+  tile.classList.toggle('ready', state === 'ready');
+}
+
+function setDistanceLiveValue(text, state) {
+  distanceOverlayValue.textContent = text;
+  distanceLiveValue.textContent = text;
+  setTileState(distanceOverlayTile, state);
+  setTileState(distanceLiveTile, state);
+}
+
+function setPickupLiveValue(text, state) {
+  currentPickupText = text;
+  pickupOverlayValue.textContent = text;
+  pickupLiveValue.textContent = text;
+  setTileState(pickupOverlayTile, state);
+  setTileState(pickupLiveTile, state);
+  publishOperatorState();
+}
+
+function activePlayerReady() {
+  return !!playersReady[activeTeam];
+}
+
+function activeRelayConnected() {
+  return !!relayConnected[activeTeam];
+}
+
+function updateRelayDisplay() {
+  const connected = activeRelayConnected();
+  relayStatusEl.classList.toggle('on', connected);
+  relayStatusEl.classList.toggle('off', !connected);
+  clearAlarmButton.disabled = !connected;
+}
+
+function applyRelayState(state) {
+  const arms = state && state.arms || {};
+  relayConnected = {
+    purple: !!(arms.purple && arms.purple.connected),
+    green: !!(arms.green && arms.green.connected),
+  };
+  updateRelayDisplay();
+  setStartEnabled();
+}
+
+function updateReadyDisplay() {
+  const ready = activePlayerReady();
+  readyLiveValue.textContent = ready ? 'Ready' : 'Waiting';
+  setTileState(readyLiveTile, ready ? 'ready' : 'warn');
+}
+
 function updateArmTelemetry(status = latestRobotStatus) {
   const pose = robotPose(status);
   const distance = poseDistanceMm(pose, depositCenterPose);
   const inside = Number.isFinite(distance) && distance <= activeRadiusMm;
-  targetCoordsEl.textContent = formatPose(depositCenterPose);
-  armCoordsEl.textContent = pose ? `${formatPose(pose)} (${robotPoseSource(status)})` : 'waiting';
-  distanceStatusEl.textContent = Number.isFinite(distance)
+  lastDistanceMm = Number.isFinite(distance) ? distance : null;
+  const distanceText = Number.isFinite(distance)
     ? `${distance.toFixed(0)} / ${activeRadiusMm.toFixed(0)} mm`
     : `-- / ${activeRadiusMm.toFixed(0)} mm`;
+  targetCoordsEl.textContent = formatPose(depositCenterPose);
+  armCoordsEl.textContent = pose ? `${formatPose(pose)} (${robotPoseSource(status)})` : 'waiting';
+  distanceStatusEl.textContent = distanceText;
   distanceStatusEl.classList.toggle('win', inside);
+  setDistanceLiveValue(distanceText, inside ? 'win' : '');
   suctionStatusEl.textContent = inside
     ? `${pumpLabel(status)}${suctionReleased(status) ? ' - win ready' : ' - release to win'}`
     : pumpLabel(status);
   suctionStatusEl.classList.toggle('win', inside && suctionReleased(status));
+  publishOperatorState();
 }
 
 function currentPlayerStats() {
   if (!playerName) return emptyStats();
-  if (!statsByPlayer[playerName]) statsByPlayer[playerName] = emptyStats();
-  return statsByPlayer[playerName];
+  const key = teamPlayerKey(activeTeam, playerName);
+  if (!statsByPlayer[key]) statsByPlayer[key] = emptyStats();
+  return statsByPlayer[key];
 }
 
 function secondsText(value) {
@@ -614,21 +1105,105 @@ function improvementText(value) {
 }
 
 function updateStatsDisplay() {
-  playerStatusEl.textContent = playerName || 'not set';
+  playerStatusEl.textContent = playerName ? `${capitalize(activeTeam)} / ${playerName}` : `${capitalize(activeTeam)} / not set`;
   if (!playerName) {
     statsStatusEl.textContent = 'enter player name';
+    runsLiveValue.textContent = '0';
+    updateHighScores();
+    updateProgressDisplay();
     return;
   }
   const stats = currentPlayerStats();
+  runsLiveValue.textContent = String(stats.starts || 0);
   const averageWin = stats.wins ? stats.totalWinSeconds / stats.wins : null;
   statsStatusEl.textContent = [
-    `${stats.rounds} rounds`,
+    `${stats.starts || 0} starts`,
+    `${stats.rounds} finished`,
     `${stats.wins}W ${stats.losses}L`,
     `best ${secondsText(stats.bestWinSeconds)}`,
     `avg ${secondsText(averageWin)}`,
     `last ${improvementText(stats.lastImprovementSeconds)}`,
     `best gain ${improvementText(stats.bestImprovementSeconds)}`,
   ].join(' | ');
+  updateHighScores();
+  updateProgressDisplay();
+}
+
+function recordRunStart() {
+  if (!playerName) return;
+  const stats = currentPlayerStats();
+  stats.starts = (Number(stats.starts) || 0) + 1;
+  saveConfig();
+  updateStatsDisplay();
+}
+
+function capitalize(value) {
+  const text = String(value || '');
+  return text ? text[0].toUpperCase() + text.slice(1) : '';
+}
+
+function updateHighScores() {
+  const entries = Object.entries(statsByPlayer)
+    .map(([key, stats]) => scoreEntryFromKey(key, normalizeStats(stats)))
+    .filter(entry => entry.name && entry.stats.wins > 0 && Number.isFinite(entry.stats.bestWinSeconds))
+    .sort((a, b) => (
+      a.stats.bestWinSeconds - b.stats.bestWinSeconds
+      || b.stats.wins - a.stats.wins
+      || a.name.localeCompare(b.name)
+    ))
+    .slice(0, 6);
+
+  highScoreRows.innerHTML = entries.map(entry => `
+    <tr>
+      <td>${escapeHtml(entry.name)}</td>
+      <td><span class="teamLabel ${entry.team || ''}">${entry.team ? capitalize(entry.team) : '-'}</span></td>
+      <td>${secondsText(entry.stats.bestWinSeconds)}</td>
+      <td>${entry.stats.wins}</td>
+    </tr>
+  `).join('');
+  highScoreEmpty.style.display = entries.length ? 'none' : '';
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+function updateProgressDisplay() {
+  gameStatePill.className = gameState;
+  gameStatePill.textContent = gameState === 'setup'
+    ? 'Setup'
+    : gameState === 'countdown'
+      ? 'Starting'
+    : gameState === 'running'
+      ? 'Live'
+      : gameState === 'won'
+        ? 'Won'
+        : 'Ended';
+
+  const elapsed = startedAt ? elapsedSeconds() : 0;
+  const percent = gameState === 'setup' || gameState === 'countdown' ? 0 : Math.min(100, (elapsed / ROUND_SECONDS) * 100);
+  progressFill.style.width = `${percent}%`;
+
+  if (gameState === 'countdown') {
+    const remaining = Math.max(0, Math.ceil((countdownEndsAt - performance.now()) / 1000));
+    progressText.textContent = `${capitalize(activeTeam)} team starts in ${remaining}s.`;
+  } else if (gameState === 'running') {
+    progressText.textContent = `${capitalize(activeTeam)} team: ${playerName || 'unnamed player'} has ${Math.max(0, Math.ceil(ROUND_SECONDS - elapsed))}s remaining.`;
+  } else if (gameState === 'won') {
+    progressText.textContent = `${capitalize(activeTeam)} team won in ${secondsText(elapsed)}.`;
+  } else if (gameState === 'ended') {
+    progressText.textContent = `${capitalize(activeTeam)} team round ended at ${secondsText(elapsed)}.`;
+  } else if (playerName) {
+    progressText.textContent = `${capitalize(activeTeam)} team ready for ${playerName}.`;
+  } else {
+    progressText.textContent = 'Configure the team, player, tag, and calibration before starting.';
+  }
 }
 
 function recordRoundResult(state, elapsed) {
@@ -657,17 +1232,68 @@ function updateSelectedTag(tag) {
   if (tag) {
     selectedTag = tag;
     selectedTagSeenAt = performance.now();
+    preStartTagConfirmed = true;
   } else if (performance.now() - selectedTagSeenAt > TAG_VISIBLE_GRACE_MS) {
     selectedTag = null;
   }
+  updatePickupDisplay(tag || selectedTag);
 }
 
 function tagReady() {
   return !!selectedTag && performance.now() - selectedTagSeenAt <= TAG_VISIBLE_GRACE_MS;
 }
 
+function tagConfirmed() {
+  return preStartTagConfirmed || tagReady();
+}
+
+function vacuumOn(status = latestRobotStatus) {
+  return String(status && status.pump_mode || '').toLowerCase() === 'suck';
+}
+
+function updatePickupDisplay(tag = selectedTag, status = latestRobotStatus) {
+  if (gameState === 'setup') {
+    const visible = !!tag || tagReady() || preStartTagConfirmed;
+    setPickupLiveValue(visible ? 'Tag visible' : 'Waiting', visible ? '' : 'warn');
+    return;
+  }
+  if (gameState === 'won') {
+    setPickupLiveValue('Delivered', 'win');
+    return;
+  }
+  if (tag) {
+    if (targetAreaVisible) {
+      const outsideTarget = !tagInActiveOverlay(tag);
+      setPickupLiveValue(outsideTarget ? 'Not picked up' : 'Picked up', outsideTarget ? 'warn' : 'picked');
+      return;
+    }
+    setPickupLiveValue('Tag visible', '');
+    return;
+  }
+  if (targetAreaVisible) {
+    setPickupLiveValue('Picked up', 'picked');
+    return;
+  }
+  if (tagBlockedSince) {
+    const hiddenFor = Math.max(0, (performance.now() - tagBlockedSince) / 1000);
+    setPickupLiveValue(vacuumOn(status) ? `Hidden + vacuum ${hiddenFor.toFixed(1)}s` : 'Hidden, vacuum needed', 'warn');
+    return;
+  }
+  setPickupLiveValue(vacuumOn(status) ? 'Watching tag' : 'Not picked up', '');
+}
+
 function setStartEnabled() {
-  startButton.disabled = !(depositCenterConfirmed && playerName);
+  startButton.disabled = gameState !== 'setup'
+    || !(depositCenterConfirmed && playerName && activeRelayConnected() && activePlayerReady() && tagConfirmed());
+  updateProgressDisplay();
+}
+
+function updateControlAvailability() {
+  const locked = gameState === 'countdown' || gameState === 'running';
+  for (const el of [teamSelect, playerNameInput, tagInput, radiusRange, radiusInput, showCalibrationTargetButton, confirmDepositButton]) {
+    el.disabled = locked;
+  }
+  if (gameState !== 'setup') startButton.disabled = true;
 }
 
 function startWebcamStream() {
@@ -750,6 +1376,54 @@ function connectPlayfieldEvents() {
   };
 }
 
+function connectGameStateEvents() {
+  const es = new EventSource(ABS('/p/tag-game/api/events'));
+  es.onmessage = e => {
+    try {
+      const state = JSON.parse(e.data);
+      if (state && state.ready) {
+        playersReady = {
+          purple: !!state.ready.purple,
+          green: !!state.ready.green,
+        };
+        updateReadyDisplay();
+      }
+      const incomingName = cleanPlayerName(state && state.players && state.players[activeTeam]);
+      if (gameState === 'setup' && incomingName && !playerNameEditing && incomingName !== playerName) {
+        playerName = incomingName;
+        playerNameInput.value = playerName;
+        saveConfig();
+        updateStatsDisplay();
+        setStartEnabled();
+        updateSetupStatus(selectedTag);
+      }
+    } catch (_) {}
+  };
+}
+
+async function connectRelayEvents() {
+  try { applyRelayState(await crossRequest('/p/dobot-mg400-relay/api/state')); } catch (_) {}
+  const es = new EventSource(ABS('/p/dobot-mg400-relay/api/events'));
+  es.onmessage = e => {
+    try {
+      applyRelayState(JSON.parse(e.data));
+    } catch (_) {}
+  };
+  es.onerror = () => {
+    relayConnected = { purple: false, green: false };
+    updateRelayDisplay();
+    setStartEnabled();
+  };
+}
+
+function publishSetupState(force = false) {
+  publishOperatorState({
+    phase: gameState,
+    active_team: activeTeam,
+    players: { [activeTeam]: playerName },
+  }, force);
+}
+
 function elapsedSeconds(now = performance.now()) {
   const end = finishedAt || now;
   return Math.min(ROUND_SECONDS, Math.max(0, (end - startedAt) / 1000));
@@ -770,15 +1444,16 @@ function imageSize() {
 }
 
 function cameraRect() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const stage = cameraStage.getBoundingClientRect();
+  const vw = stage.width;
+  const vh = stage.height;
   const { width: iw, height: ih } = imageSize();
   const scale = Math.min(vw / iw, vh / ih);
   const width = iw * scale;
   const height = ih * scale;
   return {
-    left: (vw - width) / 2,
-    top: (vh - height) / 2,
+    left: stage.left + (vw - width) / 2,
+    top: stage.top + (vh - height) / 2,
     width,
     height,
   };
@@ -948,27 +1623,54 @@ function updateActiveOverlay() {
   const cy = (box.top + box.bottom) / 2;
   const baseRadius = Math.max(8, Math.min(box.right - box.left, box.bottom - box.top) / 2);
   const radiusPx = baseRadius * activeRadiusMm / DEFAULT_ACTIVE_RADIUS_MM;
+  const overlayRect = areaOverlay.getBoundingClientRect();
   activeAreaOverlay.style.display = 'block';
-  activeAreaOverlay.style.left = `${cx - radiusPx}px`;
-  activeAreaOverlay.style.top = `${cy - radiusPx}px`;
+  activeAreaOverlay.style.left = `${cx - radiusPx - overlayRect.left}px`;
+  activeAreaOverlay.style.top = `${cy - radiusPx - overlayRect.top}px`;
   activeAreaOverlay.style.width = `${radiusPx * 2}px`;
   activeAreaOverlay.style.height = `${radiusPx * 2}px`;
 }
 
-async function updateTargetReveal(tag) {
-  if (gameState !== 'running' || targetAreaVisible || targetAreaCreating) return;
+async function resetPickupReveal() {
+  targetAreaVisible = false;
+  tagBlockedSince = 0;
+  if (depositArea) {
+    const oldDeposit = depositArea;
+    depositArea = null;
+    await deleteArea(oldDeposit.id);
+  }
+  updateActiveOverlay();
+}
+
+async function updateTargetReveal(tag, status = latestRobotStatus) {
+  if (gameState !== 'running' || targetAreaCreating) return;
   if (tag) {
+    if (targetAreaVisible && !tagInActiveOverlay(tag)) {
+      await resetPickupReveal();
+    }
     tagBlockedSince = 0;
+    updatePickupDisplay(tag, status);
+    return;
+  }
+  if (targetAreaVisible) {
+    updatePickupDisplay(null, status);
+    return;
+  }
+  if (!vacuumOn(status)) {
+    tagBlockedSince = 0;
+    updatePickupDisplay(null, status);
     return;
   }
   const now = performance.now();
   if (!tagBlockedSince) tagBlockedSince = now;
+  updatePickupDisplay(null, status);
   if (now - tagBlockedSince >= TAG_BLOCKED_REVEAL_MS) {
     targetAreaCreating = true;
     try {
       await createDepositAreaForRound();
       targetAreaVisible = true;
       updateActiveOverlay();
+      updatePickupDisplay(null, status);
     } finally {
       targetAreaCreating = false;
     }
@@ -1047,20 +1749,27 @@ function updateSetupStatus(tag) {
   updateSelectedTag(tag);
   setStartEnabled();
   if (!playerName) {
-    setupStatus.textContent = 'Enter the player name.';
+    setupStatus.textContent = 'Enter the player name for the selected team.';
+  } else if (!activeRelayConnected()) {
+    setupStatus.textContent = `Connect the ${capitalize(activeTeam)} MG400 Relay before starting.`;
+  } else if (!activePlayerReady()) {
+    setupStatus.textContent = `${capitalize(activeTeam)} player must press Ready on their Tag Game screen.`;
+  } else if (!tagConfirmed()) {
+    setupStatus.textContent = `Show tag ${tagId} once at the pickup area before starting.`;
   } else if (!depositCenterConfirmed && tagReady()) {
-    setupStatus.textContent = `Tag ${tagId} visible. Turn on the target if calibration is needed.`;
+    setupStatus.textContent = `Tag ${tagId} visible. Calibrate the green center if needed.`;
   } else if (!depositCenterConfirmed) {
-    setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
-  } else if (!depositCenterPose && tagReady()) {
+    setupStatus.textContent = `Waiting for tag ${tagId}. Calibrate the green center if needed.`;
+  } else if (!depositCenterPose && tagConfirmed()) {
     setupStatus.textContent = `Center confirmed. Tag ${tagId} is visible. Press Start game.`;
   } else if (!depositCenterPose) {
     setupStatus.textContent = `Center confirmed. Press Start game to read the robot position.`;
-  } else if (tagReady()) {
+  } else if (tagConfirmed()) {
     setupStatus.textContent = `Deposit center confirmed. Tag ${tagId} is visible. Press Start game.`;
   } else {
     setupStatus.textContent = `Deposit center confirmed. Press Start game to check tag ${tagId}.`;
   }
+  updateProgressDisplay();
 }
 
 async function confirmDepositCenter() {
@@ -1123,18 +1832,17 @@ async function pollSetup() {
 async function pollRound() {
   if (gameState !== 'running' || finishedAt) return;
   try {
-    const [status, tags] = await Promise.all([robotStatus(), cameraTags()]);
-    const tag = trackedTag(tags);
-    await updateTargetReveal(tag);
+    const status = await robotStatus();
+    const tag = null;
     updateArmTelemetry(status);
+    await updateTargetReveal(tag, status);
+    updatePickupDisplay(tag, status);
     if (String(status.pump_mode || '').toLowerCase() === 'suck') {
       hadSuctionDuringRun = true;
     }
     if (!targetAreaVisible) return;
     if (!robotAtDeposit(status) || !suctionReleased(status)) return;
-
-    const tagVisibleOutsideActiveArea = tag && !tagInActiveOverlay(tag);
-    if (!tagVisibleOutsideActiveArea) finishRound('won');
+    finishRound('won');
   } catch (_) {}
 }
 
@@ -1145,6 +1853,10 @@ function finishRound(state) {
   sendDepositSize(AREA_SIZE, true);
   recordRoundResult(state, elapsedSeconds());
   if (state === 'won') timerEl.textContent = 'WIN';
+  publishOperatorState({ phase: state }, true);
+  updateControlAvailability();
+  updatePickupDisplay();
+  updateProgressDisplay();
 }
 
 async function resetRound() {
@@ -1153,18 +1865,31 @@ async function resetRound() {
   gameState = 'setup';
   selectedTag = null;
   selectedTagSeenAt = 0;
+  preStartTagConfirmed = false;
   hadSuctionDuringRun = false;
   targetAreaVisible = false;
   targetAreaCreating = false;
   tagBlockedSince = 0;
   startedAt = 0;
   finishedAt = 0;
+  countdownEndsAt = 0;
+  roundStarting = false;
   timerEl.textContent = String(ROUND_SECONDS);
-  setupEl.classList.remove('hidden');
   updateArmTelemetry();
   updateStatsDisplay();
+  updateControlAvailability();
   setStartEnabled();
-  setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
+  setupStatus.textContent = `Waiting for tag ${tagId}. Calibrate the green center if needed.`;
+  updatePickupDisplay(null);
+  playersReady[activeTeam] = false;
+  updateReadyDisplay();
+  publishOperatorState({
+    phase: 'setup',
+    game_started_at: null,
+    countdown_started_at: null,
+    ready: { [activeTeam]: false },
+  }, true);
+  updateProgressDisplay();
   await clearPlayfieldAreas();
   updateActiveOverlay();
   setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);
@@ -1174,7 +1899,16 @@ async function resetRound() {
 function tick() {
   updateActiveOverlay();
   updateArmTelemetry();
+  updatePickupDisplay();
   if (gameState === 'won') {
+    frameHandle = requestAnimationFrame(tick);
+    return;
+  }
+  if (gameState === 'countdown') {
+    const remaining = Math.max(0, Math.ceil((countdownEndsAt - performance.now()) / 1000));
+    timerEl.textContent = String(remaining);
+    updateProgressDisplay();
+    if (performance.now() >= countdownEndsAt) beginRoundPlay();
     frameHandle = requestAnimationFrame(tick);
     return;
   }
@@ -1186,6 +1920,7 @@ function tick() {
   const elapsed = elapsedSeconds();
   const remaining = Math.max(0, Math.ceil(ROUND_SECONDS - elapsed));
   timerEl.textContent = String(remaining);
+  updateProgressDisplay();
   if (!finishedAt && elapsed >= ROUND_SECONDS) finishRound('ended');
   frameHandle = requestAnimationFrame(tick);
 }
@@ -1198,10 +1933,28 @@ async function startRound() {
   updateStatsDisplay();
   if (!playerName) {
     setStartEnabled();
-    setupStatus.textContent = 'Enter the player name.';
+    setupStatus.textContent = 'Enter the player name for the selected team.';
+    return;
+  }
+  if (!activeRelayConnected()) {
+    setStartEnabled();
+    setupStatus.textContent = `Connect the ${capitalize(activeTeam)} MG400 Relay before starting.`;
+    return;
+  }
+  if (!activePlayerReady()) {
+    setStartEnabled();
+    setupStatus.textContent = `${capitalize(activeTeam)} player must press Ready on their Tag Game screen.`;
     return;
   }
   commitConfiguredTagId();
+  try {
+    updateSelectedTag(trackedTag(await cameraTags()));
+  } catch (_) {}
+  if (!tagConfirmed()) {
+    setStartEnabled();
+    setupStatus.textContent = `Show tag ${tagId} once at the pickup area before starting.`;
+    return;
+  }
   startButton.disabled = true;
   if (!depositCenterConfirmed) {
     setStartEnabled();
@@ -1218,14 +1971,33 @@ async function startRound() {
       updateArmTelemetry(status);
     }).catch(() => {});
   }
-  cameraTags().then(tags => updateSelectedTag(trackedTag(tags))).catch(() => {});
-  setupEl.classList.add('hidden');
+  gameState = 'countdown';
+  recordRunStart();
+  countdownEndsAt = performance.now() + COUNTDOWN_SECONDS * 1000;
+  timerEl.textContent = String(COUNTDOWN_SECONDS);
+  updateControlAvailability();
+  setupStatus.textContent = `${capitalize(activeTeam)} team starts in ${COUNTDOWN_SECONDS} seconds.`;
+  const serverState = await operatorPatch(operatorStatePayload({
+    phase: 'countdown',
+  }));
+  if (serverState && Number.isFinite(Number(serverState.game_started_at)) && Number.isFinite(Number(serverState.server_time))) {
+    countdownEndsAt = performance.now() + Math.max(0, Number(serverState.game_started_at) - Number(serverState.server_time)) * 1000;
+  }
+  updateProgressDisplay();
+}
+
+async function beginRoundPlay() {
+  if (roundStarting || gameState !== 'countdown') return;
+  roundStarting = true;
   await clearPlayfieldAreas();
   await createPickupAreaForRound();
   lastSentSize = AREA_SIZE;
   targetAreaVisible = false;
   targetAreaCreating = false;
   tagBlockedSince = 0;
+  selectedTag = null;
+  selectedTagSeenAt = 0;
+  updatePickupDisplay(null);
   updateActiveOverlay();
   startedAt = performance.now();
   finishedAt = 0;
@@ -1234,38 +2006,67 @@ async function startRound() {
   clearInterval(setupPoll);
   gameState = 'running';
   timerEl.textContent = String(ROUND_SECONDS);
+  updateControlAvailability();
+  updateProgressDisplay();
+  publishOperatorState({ phase: 'running' }, true);
   roundPoll = setInterval(pollRound, ROBOT_POLL_MS);
+  roundStarting = false;
 }
 
 async function init() {
   startWebcamStream();
   connectPlayfieldEvents();
+  connectGameStateEvents();
+  connectRelayEvents();
   await clearPlayfieldAreas();
+  teamSelect.value = activeTeam;
   playerNameInput.value = playerName;
+  updateReadyDisplay();
   tagInput.value = String(tagId);
   syncRadiusInputs(activeRadiusMm);
   updateArmTelemetry();
   updateStatsDisplay();
+  updateControlAvailability();
+  publishSetupState(true);
 
+  teamSelect.addEventListener('change', () => {
+    activeTeam = normalizeTeam(teamSelect.value);
+    teamSelect.value = activeTeam;
+    saveConfig();
+    latestRobotStatus = null;
+    updateArmTelemetry();
+    updateStatsDisplay();
+    updateRelayDisplay();
+    setStartEnabled();
+    updateReadyDisplay();
+    updateSetupStatus(selectedTag);
+    publishSetupState(true);
+  });
+  playerNameInput.addEventListener('focus', () => { playerNameEditing = true; });
+  playerNameInput.addEventListener('blur', () => { playerNameEditing = false; });
   playerNameInput.addEventListener('input', () => {
     playerName = cleanPlayerName(playerNameInput.value);
     saveConfig();
     updateStatsDisplay();
     setStartEnabled();
     updateSetupStatus(selectedTag);
+    publishSetupState();
   });
   tagInput.addEventListener('input', () => {
     if (!readConfiguredTagId()) {
       selectedTag = null;
       selectedTagSeenAt = 0;
+      preStartTagConfirmed = false;
       setStartEnabled();
       setupStatus.textContent = 'Enter the tracked tag number.';
       return;
     }
     selectedTag = null;
     selectedTagSeenAt = 0;
+    preStartTagConfirmed = false;
     setStartEnabled();
     setupStatus.textContent = `Waiting for tag ${tagId}. Turn on the target if calibration is needed.`;
+    publishSetupState();
   });
   tagInput.addEventListener('change', commitConfiguredTagId);
   radiusRange.addEventListener('input', () => syncRadiusInputs(radiusRange.value));
@@ -1274,6 +2075,7 @@ async function init() {
   confirmDepositButton.addEventListener('click', confirmDepositCenter);
   startButton.addEventListener('click', startRound);
   restartButton.addEventListener('click', resetRound);
+  clearAlarmButton.addEventListener('click', clearActiveArmErrors);
 
   updateActiveOverlay();
   setupPoll = setInterval(pollSetup, CAMERA_POLL_MS);

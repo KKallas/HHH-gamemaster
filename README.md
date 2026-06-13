@@ -5,8 +5,8 @@ The **single host** for the HHH game: ONE server (the [Manual Override](https://
 | Sandbox | URL | Machines |
 |---|---|---|
 | `gamemaster` | `/s/gamemaster/` | `dobot-mg400-relay`, `webcam`, `playfield-areas`, `tag-game`, `atom-manager`, `joint-angles-test`, `cartesian-xyz-test` |
-| `green` | `/s/green/` | `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
-| `purple` | `/s/purple/` | `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
+| `green` | `/s/green/` | `tag-game`, `game-link`, `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
+| `purple` | `/s/purple/` | `tag-game`, `game-link`, `joint-angles-test`, `cartesian-xyz-test`, `playfield-areas` |
 
 The machines live under `sandboxes/<name>/prototypes/`. The hub engine is shared — there is exactly one server process and one port.
 
@@ -23,8 +23,8 @@ The landing page at `/` links the three sandboxes. The startup banner prints eac
 
 Passwords live in `hub-config.json` (created on first run, git-ignored, freely editable — restart after editing). Logging in at a sandbox sets a signed cookie:
 
-* **green / purple** unlock only their own sandbox — players cannot open each other's panels, nor the gamemaster's pages or APIs.
-* **gamemaster** unlocks all three (referee oversight).
+* **green / purple** are team sandboxes and unlock only their own side — teams cannot open each other's panels, nor the gamemaster's pages or APIs.
+* **gamemaster** unlocks all three as the referee and operator.
 
 Player controllers still drive their arm through the gamemaster's relay: the hub admits their server-side calls to the relay's API (a per-sandbox service token, see `shared_api` in `hub-config.json`), and the relay **enforces side = your team**, so a green controller can never acquire, move, or kick the purple arm. Note the trust model is per-sandbox code execution: importing a setup zip runs that sandbox's `prototype.py` files on this host.
 
@@ -39,7 +39,7 @@ This replaces the old per-player git clones: players carry their setup as a zip.
 
 ### Operator takeover
 
-The two direct controllers (`joint-angles-test`, `cartesian-xyz-test` in the gamemaster sandbox) let the game-master step in and drive an arm by hand. **Only one thing can hold an arm connection at a time**, so to take over: **disable the `dobot-mg400-relay` machine** (toggle it off in the gamemaster dashboard — this drops the relay's arm connections; the watchdog smooth-stops first), then open a direct controller in **Direct** mode and connect to the arm IP. Re-enable the relay to hand control back to the sides.
+The two direct controllers (`joint-angles-test`, `cartesian-xyz-test` in the gamemaster sandbox) let the gamemaster referee/operator step in and drive an arm by hand. **Only one thing can hold an arm connection at a time**, so to take over: **disable the `dobot-mg400-relay` machine** (toggle it off in the gamemaster dashboard — this drops the relay's arm connections; the watchdog smooth-stops first), then open a direct controller in **Direct** mode and connect to the arm IP. Re-enable the relay to hand control back to the sides.
 
 Open the **Dobot MG400 Relay** tab (operator view): connect each side's arm (defaults `192.168.1.6` purple / `192.168.1.7` green), enable them, and the two sides can then acquire control from their own controllers.
 

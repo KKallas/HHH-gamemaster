@@ -70,7 +70,7 @@ MAX_ANG_VEL = 90.0   # deg/s
 # stop). Acceleration = speed-cap / ramp-time. Larger ramp = gentler start/stop
 # and a longer braking distance → removes the overshoot a hard velocity step
 # causes. Exposed live as the "Smoothness" control.
-RAMP_SECS = 0.35
+RAMP_SECS = 0.50
 
 # Air pump box (two-line suck/blow model — see joint prototype).
 SUCK_DO_INDEX = 2
@@ -95,7 +95,7 @@ _live = live.LiveState()
 
 # Motion shaping: last speed % and ramp time, pushed to the follower together as
 # velocity + acceleration caps.
-_speed_ratio = 30
+_speed_ratio = 10
 _ramp_secs = RAMP_SECS
 
 
@@ -478,7 +478,7 @@ def speed():
     robot = _current()
     if robot is None or not robot.is_connected():
         return _fail("Not connected")
-    ratio = _clamp(int((request.json or {}).get("ratio", 30)), 1, 100)
+    ratio = _clamp(int((request.json or {}).get("ratio", 10)), 1, 100)
     _speed_ratio = ratio
     _apply_motion(robot)
     return _command(lambda r: r.speed_factor(ratio))

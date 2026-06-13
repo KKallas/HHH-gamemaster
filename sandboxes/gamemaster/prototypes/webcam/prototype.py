@@ -177,6 +177,29 @@ class TagTracker:
             out.sort(key=lambda t: t["id"])
             return out
 
+    def detections(self, now):
+        """Immediate marker reads, including tags still inside the debounce window."""
+        with self._lock:
+            out = []
+            for rec in self._tags.values():
+                missing = now - rec["last_seen"]
+                if missing > STREAK_GRACE:
+                    continue
+                out.append({
+                    "id": rec["id"],
+                    "x": round(rec["x"], 1), "y": round(rec["y"], 1),
+                    "nx": round(rec["nx"], 4), "ny": round(rec["ny"], 4),
+                    "rotation": round(rec["rot"], 1),
+                    "missing": round(missing, 2),
+                    "tracked": bool(rec["tracked"]),
+                    "corners": [
+                        [round(float(x), 1), round(float(y), 1)]
+                        for x, y in rec.get("corners", [])
+                    ],
+                })
+            out.sort(key=lambda t: t["id"])
+            return out
+
 
 _tracker = TagTracker()
 
@@ -514,7 +537,12 @@ def api_status():
 def _events_dict():
     st = _mgr.status()
     st["remembered"] = _load_settings()
-    return {"status": st, "tags": _tracker.tags(time.monotonic())}
+    now = time.monotonic()
+    return {
+        "status": st,
+        "tags": _tracker.tags(now),
+        "detections": _tracker.detections(now),
+    }
 
 
 @bp.route("/api/events")
@@ -528,8 +556,10 @@ def api_events():
 def api_tags():
     """The debounced list of tracked ArUco tags: id, x, y (pixels), nx/ny
     (normalised 0..1), rotation (degrees), and how long it's been `missing`."""
+    now = time.monotonic()
     return jsonify({
-        "tags": _tracker.tags(time.monotonic()),
+        "tags": _tracker.tags(now),
+        "detections": _tracker.detections(now),
         "dict": "DICT_4X4_50",
         "promote_secs": PROMOTE_SECS,
         "drop_secs": DROP_SECS,

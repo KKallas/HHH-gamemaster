@@ -128,11 +128,11 @@ WORKSPACE = {
 RADIUS_MIN = 150.0   # mm — inside this the arm can't reach (too folded)
 RADIUS_MAX = 440.0   # mm — max horizontal reach
 
-# Conservative following speed at 100% on the speed slider (per follower).
-MAX_JOINT_VEL = 120.0   # deg/s
-MAX_LIN_VEL = 200.0     # mm/s
-MAX_ANG_VEL = 90.0      # deg/s
-RAMP_SECS = 0.35        # follower ramp/brake time → accel = vel-cap / ramp-time
+# Conservative Tag Game defaults: 10% speed with a gentler ramp/brake profile.
+MAX_JOINT_VEL = 12.0    # deg/s
+MAX_LIN_VEL = 20.0      # mm/s
+MAX_ANG_VEL = 9.0       # deg/s
+RAMP_SECS = 0.50        # follower ramp/brake time -> accel = vel-cap / ramp-time
 
 # Air pump box (two-line suck/blow model — see joint prototype).
 SUCK_DO_INDEX = 2
@@ -488,6 +488,30 @@ def disconnect():
             _log_command("robot", side, "close", {}, ok=True)
     _live.bump()
     return _ok(side=side)
+
+
+@bp.route("/api/clear_error", methods=["POST"])
+def clear_error():
+    """Clear alarms/warnings on that side's arm without enabling or moving it."""
+    data = request.json or {}
+    _log_incoming("clear_error", data)
+    side = _side_from(data)
+    if side is None:
+        _log_incoming("clear_error", data, ok=False, error="side must be 'purple' or 'green'")
+        return _fail("side must be 'purple' or 'green'")
+    robot = _arm(side)
+    if robot is None or not robot.is_connected():
+        _log_command("robot", side, "clear_error", {}, ok=False, error="Not connected")
+        return _fail("Not connected")
+    try:
+        errid, resp = robot.clear_error()
+    except DobotError as e:
+        _log_command("robot", side, "clear_error", {}, ok=False, error=str(e))
+        return _fail(str(e), errid=e.errid)
+    ok = errid == 0
+    _log_command("robot", side, "clear_error", {"errid": errid, "resp": resp}, ok=ok)
+    _live.bump()
+    return jsonify({"ok": ok, "errid": errid, "resp": resp, "side": side})
 
 
 @bp.route("/api/enable", methods=["POST"])

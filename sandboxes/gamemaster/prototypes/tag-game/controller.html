@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tag Game — Referee</title>
+<title>Tag Game — Gamemaster</title>
 <style>
   :root {
     --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef;
@@ -37,8 +37,8 @@
 </head>
 <body>
 <header>
-  <h1>Tag Game — Referee</h1>
-  <span class="sub">game flow for the camera-confirmed tag game · zones live on the
+  <h1>Tag Game — Gamemaster</h1>
+  <span class="sub">referee/operator flow for the camera-confirmed tag game · zones live on the
     <a href="#" id="playfieldLink" target="_blank">playfield</a></span>
 </header>
 <main>
@@ -46,14 +46,15 @@
     <h2><span>Game flow</span></h2>
     <div class="bar">
       <button id="setupGame">Reset to tag game areas</button>
-      <button class="primary" id="openGame">Open game screen ↗</button>
+      <button class="primary" id="openGame">Go to game screen</button>
       <span id="status">…</span>
     </div>
     <p class="hint"><b>Reset to tag game areas</b> replaces the playfield with the
       shared <b>pickup</b> / <b>deposit</b> zones (ArUco hidden). Adjust their
-      position on the playfield controller if needed, then <b>Open game screen</b>
-      for the fullscreen game view — it asks for the player + tag id, calibrates
-      the deposit center against the robot, and runs the 90&nbsp;second round.</p>
+      position on the playfield controller if needed, then <b>Go to game screen</b>
+      for the embedded game view — the gamemaster configures the purple or
+      green team entry, calibrates the deposit center against the robot, starts
+      the 90&nbsp;second round, and monitors progress plus high scores.</p>
   </section>
 </main>
 
@@ -80,7 +81,7 @@ const GAME_AREAS = [
     show_area: true, show_aruco: false, show_links: false },
 ];
 
-document.getElementById('openGame').onclick = () => window.open(U('game'), '_blank');
+document.getElementById('openGame').onclick = () => { location.href = U('game'); };
 
 document.getElementById('setupGame').onclick = async () => {
   status('resetting…');

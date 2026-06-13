@@ -73,13 +73,17 @@ AUTH_HEADER = "X-HHH-Auth"
 # call (the cross-sandbox surface — keep it minimal).
 DEFAULT_SANDBOXES = {
     "gamemaster": {
-        "label": "Game Master",
+        "label": "Gamemaster Referee / Operator",
         "accent": "#b6ff3a",
         "admin": True,
-        "shared_api": {"dobot-mg400-relay": ["green", "purple"]},
+        "shared_api": {
+            "dobot-mg400-relay": ["green", "purple"],
+            "tag-game": ["green", "purple"],
+            "webcam": ["green", "purple"],
+        },
     },
-    "green": {"label": "Green Player", "accent": "#36e07c"},
-    "purple": {"label": "Purple Player", "accent": "#b86bff"},
+    "green": {"label": "Green Team", "accent": "#36e07c"},
+    "purple": {"label": "Purple Team", "accent": "#b86bff"},
 }
 
 
@@ -596,6 +600,11 @@ class Hub:
         def theme_css():
             """Shared visual theme, linked by every machine page (public)."""
             return send_from_directory(HUB_DIR, "theme.css")
+
+        @app.route("/Video1.mp4")
+        def mission_video():
+            """Public mission briefing video for the Tag Game player screen."""
+            return send_from_directory(self.root_dir, "Video1.mp4")
 
         return app
 
