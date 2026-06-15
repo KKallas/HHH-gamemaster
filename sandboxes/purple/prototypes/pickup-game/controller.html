@@ -102,18 +102,41 @@
   .namePanel label { display:grid; gap:8px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; }
   .namePanel input { width:100%; min-height:50px; font:800 20px/1.2 ui-monospace,Menlo,monospace; }
   .namePanel button { min-height:52px; font-size:17px; font-weight:800; }
-  .gamebar { position:sticky; top:0; z-index:5; display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+  /* App fills the viewport: gamebar on top, then the video + controls split. */
+  #app { display:flex; flex-direction:column; height:100vh; height:100dvh; }
+  .gamebar { flex:0 0 auto; z-index:5; display:flex; gap:14px; align-items:center; flex-wrap:wrap;
     padding:10px 20px; background:#0c0e12; border-bottom:1px solid var(--line); }
   .gamebar .teamName { font-weight:850; }
   .gamebar .teamName.green { color:#36e07c; } .gamebar .teamName.purple { color:#b86bff; }
   .gamebar .clk { font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
   .gamebar .gstatus { color:var(--muted); font-size:12px; }
-  .feedWrap { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:8px;
-    background:#030405; aspect-ratio:16 / 9; }
+
+  .playArea { flex:1 1 auto; display:flex; min-height:0; }
+  .videoPane { position:relative; background:#030405; min-height:0; min-width:0; }
+  .controlsPane { min-height:0; min-width:0; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .controlsPane main { max-width:none; margin:0; padding:16px; }
+  /* Portrait: video on the top half, controls scroll in the bottom half. */
+  @media (orientation: portrait) {
+    .playArea { flex-direction:column; }
+    .videoPane { flex:0 0 50%; }
+    .controlsPane { flex:1 1 auto; }
+  }
+  /* Landscape: controls scroll on the left, video fixed on the right. */
+  @media (orientation: landscape) {
+    .playArea { flex-direction:row; }
+    .controlsPane { flex:1 1 auto; order:0; }
+    .videoPane { flex:0 0 46%; order:1; border-left:1px solid var(--line); }
+  }
+
+  .feedWrap { position:relative; overflow:hidden; width:100%; height:100%;
+    background:#030405; }
   #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
   .feedBanner { position:absolute; inset:0; display:grid; place-items:center; background:rgba(0,0,0,.55);
     color:var(--ok); font-size:clamp(28px,7vw,72px); font-weight:950; text-align:center; white-space:pre-line; }
   .feedBanner[hidden] { display:none; }
+  .flipBtn { position:absolute; top:10px; right:10px; z-index:2; display:inline-flex; align-items:center;
+    gap:7px; padding:7px 11px; border:1px solid var(--line); border-radius:7px; cursor:pointer;
+    background:rgba(12,14,18,.82); color:var(--txt); font-size:13px; font-weight:600; }
   label.check { display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; }
 </style>
   <link rel="stylesheet" href="/theme.css" />
@@ -140,11 +163,21 @@
   <span class="gstatus" id="playerName">—</span>
   <span style="flex:1"></span>
   <span class="clk" id="clock">--</span>
-  <button id="btnStart" class="ok">Start</button>
   <button id="btnNew" hidden>New attempt</button>
-  <span class="gstatus" id="runStatus">Press Start when ready.</span>
+  <span class="gstatus" id="runStatus">Connect the arm to start the timer.</span>
 </div>
 
+<div class="playArea">
+  <section class="videoPane">
+    <div class="feedWrap">
+      <img id="webcamFeed" alt="live game camera feed" />
+      <div id="feedBanner" class="feedBanner" hidden></div>
+      <label class="flipBtn" title="Flip if your robot faces you from the far side">
+        <input type="checkbox" id="flipToggle" /> Flip 180°
+      </label>
+    </div>
+  </section>
+  <div class="controlsPane">
 <header>
   <h1>Pick &amp; Place — full arm controls</h1>
   <span class="sub" id="armSub">Manual Override · joint-space</span>
@@ -154,17 +187,6 @@
 </header>
 
 <main>
-  <section class="panel">
-    <h2>Live camera</h2>
-    <div class="feedWrap">
-      <img id="webcamFeed" alt="live game camera feed" />
-      <div id="feedBanner" class="feedBanner" hidden></div>
-    </div>
-    <div class="row" style="margin-top:12px">
-      <label class="check"><input type="checkbox" id="flipToggle" /> Flip my camera 180°</label>
-      <span class="hint" style="margin:0">Flip if your robot faces you from the far side.</span>
-    </div>
-  </section>
 
   <section class="panel">
     <h2>Connection</h2>
@@ -262,7 +284,9 @@
     <div id="log"></div>
   </section>
 </main>
-</div>
+  </div><!-- controlsPane -->
+</div><!-- playArea -->
+</div><!-- app -->
 
 <script>
 /* =====================================================================
@@ -280,6 +304,9 @@ const gid = id => document.getElementById(id);
 let gstate = null;
 let playerName = '';
 let clockHandle = 0;
+let gPrevPhase = null;     // last seen phase for this team (to detect resets)
+let armLinked = false;     // is this team's arm currently connected?
+let autoStartDone = false; // guard so connect only auto-starts the timer once
 
 function cleanName(v) { return String(v || '').trim().slice(0, 32); }
 function nameHistory() {
@@ -350,20 +377,45 @@ function startClock() {
   clockHandle = setInterval(tick, 100);
 }
 
-async function pressStart() {
-  gid('btnStart').disabled = true;
-  gid('runStatus').textContent = 'Starting…';
-  try { gameApplyState(await gmFetch('/api/start', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ team: TEAM }),
-  })); }
-  catch (e) { gid('btnStart').disabled = false; gid('runStatus').textContent = `Start failed: ${e.message}`; }
+// Ask the gamemaster to start this team's clock. Fired automatically the moment
+// the arm connects (see onArmStatus) — no manual Start button.
+async function startTimer() {
+  try {
+    gameApplyState(await gmFetch('/api/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team: TEAM }),
+    }));
+  } catch (e) {
+    autoStartDone = false;   // let the next status tick retry
+    gid('runStatus').textContent = `Start failed: ${e.message}`;
+  }
 }
+
+// Called from the arm status stream (joint layer). As soon as this team's arm is
+// connected and the gamemaster has us "ready", start the clock once.
+function onArmStatus(s) {
+  armLinked = !!(s && s.connected);
+  const ts = myTeam(gstate);
+  if (armLinked && ts.phase === 'ready' && !autoStartDone) {
+    autoStartDone = true;
+    startTimer();
+  }
+}
+
+// Player-initiated restart: same effect as the gamemaster resetting this team.
 async function pressNew() {
   try { await gmFetch('/api/reset', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ team: TEAM }),
   }); } catch (_) {}
+  // the resulting idle state (via SSE) runs onGameReset → disconnect + name gate
+}
+
+// Gamemaster reset / restart: drop the arm and return to the name screen.
+async function onGameReset() {
+  autoStartDone = false;
+  armLinked = false;
+  try { await api('/api/disconnect', {}); } catch (_) {}   // release the relay arm
   gid('nameInput').value = playerName;
   renderNameOptions();
   gid('nameStatus').textContent = 'Enter your name to begin.';
@@ -376,25 +428,30 @@ function gameApplyState(s) {
   const phase = ts.phase || 'idle';
   gid('playerName').textContent = ts.player || playerName || '—';
 
+  // Detect a gamemaster reset/restart (anything → idle) and disconnect.
+  if (phase === 'idle' && gPrevPhase && gPrevPhase !== 'idle') onGameReset();
+  gPrevPhase = phase;
+
   if (phase === 'running') {
-    gid('btnStart').hidden = true; gid('btnNew').hidden = true;
-    gid('runStatus').textContent = 'Running — gamemaster will mark you finished.';
+    gid('btnNew').hidden = true;
+    gid('runStatus').textContent = 'Timer running — gamemaster will mark you finished.';
     setBanner('', false);
     startClock();
   } else if (phase === 'done') {
     stopClock();
     gid('clock').textContent = `${Number(ts.elapsed_seconds).toFixed(1)}s`;
-    gid('btnStart').hidden = true; gid('btnNew').hidden = false;
-    gid('runStatus').textContent = `Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s!`;
+    gid('btnNew').hidden = false;
+    gid('runStatus').textContent = `Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s — gamemaster will restart.`;
     setBanner(`FINISHED\n${Number(ts.elapsed_seconds).toFixed(1)}s`, true);
   } else { // idle | ready
     stopClock();
+    autoStartDone = false;
     gid('clock').textContent = '--';
-    gid('btnStart').hidden = false; gid('btnStart').disabled = false; gid('btnNew').hidden = true;
-    gid('runStatus').textContent = 'Press Start when ready. Your clock begins immediately.';
+    gid('btnNew').hidden = true;
+    gid('runStatus').textContent = armLinked
+      ? 'Arm connected — starting…'
+      : 'Connect the arm — the timer starts the moment it connects.';
     setBanner('', false);
-    // gamemaster reset us while we were in the app → back to the name gate
-    if (phase === 'idle' && !gid('app').hidden && !ts.player && playerName) showLogin();
   }
 }
 
@@ -404,7 +461,6 @@ function gameInit() {
   gid('teamName').className = 'teamName ' + TEAM;
   renderNameOptions();
   gid('namePanel').addEventListener('submit', submitName);
-  gid('btnStart').addEventListener('click', pressStart);
   gid('btnNew').addEventListener('click', pressNew);
   gid('flipToggle').checked = localStorage.getItem(FLIP_KEY) === '1';
   gid('flipToggle').addEventListener('change', applyFlip);
@@ -633,6 +689,9 @@ function applyStatus(s) {
   }
 
   applySlots(s.slots || []);
+
+  // Let the game layer know the arm's connection state (auto-starts the timer).
+  if (typeof onArmStatus === "function") onArmStatus(s);
 }
 
 const JK = ["j1","j2","j3","j4"];

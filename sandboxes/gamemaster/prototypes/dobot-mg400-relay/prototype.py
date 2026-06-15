@@ -265,10 +265,9 @@ DEFAULT_Z_FLOOR = -72.0
 _z_lock = threading.Lock()
 _z_floor = DEFAULT_Z_FLOOR
 _z_floor_enabled = True
-_z_samples = {s: deque(maxlen=80) for s in SIDES}   # recent (j2, j3, z) feedback
+_z_samples = {s: deque(maxlen=120) for s in SIDES}  # recent (j2, j3, z) feedback
 _z_coef = {s: None for s in SIDES}                  # fitted (a, b, c) or None
-_Z_MIN_SAMPLES = 12
-_Z_MIN_SPREAD = 5.0   # deg — need this much J2 and J3 variation to trust slopes
+_Z_MIN_SAMPLES = 6
 
 
 def _load_z_floor():
@@ -315,9 +314,6 @@ def _refit_z_model(side):
         return
     j2s = [s[0] for s in samples]
     j3s = [s[1] for s in samples]
-    if (max(j2s) - min(j2s) < _Z_MIN_SPREAD) or (max(j3s) - min(j3s) < _Z_MIN_SPREAD):
-        _z_coef[side] = None   # not enough variation to pin both slopes
-        return
     zs = [s[2] for s in samples]
     n = len(samples)
     sj2, sj3, sz = sum(j2s), sum(j3s), sum(zs)
@@ -326,7 +322,13 @@ def _refit_z_model(side):
     sj2j3 = sum(j2s[i] * j3s[i] for i in range(n))
     sj2z = sum(j2s[i] * zs[i] for i in range(n))
     sj3z = sum(j3s[i] * zs[i] for i in range(n))
-    S = [[n, sj2, sj3], [sj2, sj2j2, sj2j3], [sj3, sj2j3, sj3j3]]
+    # Ridge on the two SLOPE terms only (not the intercept): keeps the fit solvable
+    # even when one joint barely moved (its slope shrinks toward 0 instead of making
+    # the whole system singular — which previously dropped the model entirely and
+    # left the floor unenforced).
+    r2 = 1e-3 * sj2j2 + 1e-6
+    r3 = 1e-3 * sj3j3 + 1e-6
+    S = [[n, sj2, sj3], [sj2, sj2j2 + r2, sj2j3], [sj3, sj2j3, sj3j3 + r3]]
     coef = _solve3(S, [sz, sj2z, sj3z])
     _z_coef[side] = tuple(coef) if coef else None
 
@@ -376,7 +378,7 @@ def _apply_z_floor(side, j1, j2, j3, j4, robot):
     alpha = max(0.0, min(1.0, (floor - az) / dz))   # fraction of the descent allowed
     nj2 = aj2 + alpha * (j2 - aj2)
     nj3 = aj3 + alpha * (j3 - aj3)
-    return j1, nj2, nj3, j4, f"z-floor {floor:.0f}mm: clamped descent"
+    return j1, nj2, nj3, j4, f"Z floor {floor:.0f} mm reached — no room to go lower"
 
 
 def _is_operator_request():
@@ -881,6 +883,7 @@ def move():
         except (ValueError, TypeError, IndexError):
             return _fail("joints must be numeric")
         j1, j2, j3, j4 = _clamp_joints(j1, j2, j3, j4)
+        _sample_z_model(side, robot)   # learn the height model from live jogging too
         j1, j2, j3, j4, znote = _apply_z_floor(side, j1, j2, j3, j4, robot)
         robot.set_target_joints(j1, j2, j3, j4)
         clamped = {"j1": round(j1, 2), "j2": round(j2, 2),

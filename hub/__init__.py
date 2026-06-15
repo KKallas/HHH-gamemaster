@@ -81,6 +81,7 @@ DEFAULT_SANDBOXES = {
             "dobot-mg400-relay": ["green", "purple"],
             "tag-game": ["green", "purple"],
             "2p-tag-game": ["green", "purple"],
+            "pickup-game": ["green", "purple"],
             "webcam": ["green", "purple"],
         },
     },
@@ -131,7 +132,17 @@ def load_config(path):
     for name, defaults in DEFAULT_SANDBOXES.items():
         sb = sandboxes.setdefault(name, {})
         for key, value in defaults.items():
-            sb.setdefault(key, value)
+            # shared_api is merged per-machine (not all-or-nothing): a config that
+            # already has a shared_api still picks up newly shared machines added to
+            # the default here, on the next start. Existing entries / operator
+            # additions are left untouched.
+            if key == "shared_api" and isinstance(value, dict):
+                shared = sb.setdefault("shared_api", {})
+                if isinstance(shared, dict):
+                    for machine, roles in value.items():
+                        shared.setdefault(machine, list(roles))
+            else:
+                sb.setdefault(key, value)
         if not isinstance(sb.get("password"), str) or not sb["password"]:
             sb["password"] = secrets.token_hex(4)
 
