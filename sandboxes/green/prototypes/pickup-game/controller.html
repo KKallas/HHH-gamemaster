@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MG400 Joint Angles Test</title>
+<title>Pick &amp; Place — Player</title>
 <style>
   :root {
     --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef; --muted:#8a93a6;
@@ -27,16 +27,11 @@
   button { background:#232733; border:1px solid var(--line); color:var(--txt);
     padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; }
   button:hover:not(:disabled) { border-color:var(--accent); }
-  button:disabled {
-    background:#171b22; border-color:#303642; color:#8f98aa;
-    cursor:not-allowed; opacity:1;
-  }
+  button:disabled { background:#171b22; border-color:#303642; color:#8f98aa; cursor:not-allowed; opacity:1; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
   button.ok { background:var(--ok); border-color:var(--ok); color:#7a0b00; font-weight:700; }
   button.stop { background:var(--warn); border-color:var(--warn); color:#2a1c00; font-weight:600; }
-  button.primary:disabled, button.ok:disabled, button.stop:disabled {
-    background:#171b22; border-color:#303642; color:#8f98aa;
-  }
+  button.primary:disabled, button.ok:disabled, button.stop:disabled { background:#171b22; border-color:#303642; color:#8f98aa; }
   .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
     border-radius:999px; font-size:12px; font-weight:600; background:#232733; color:var(--muted); }
   .pill .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
@@ -46,10 +41,7 @@
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .stat { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
   .stat .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-  /* Fixed 3-line value area + smaller font: a wrapping value can never change
-     the box height, so the page doesn't jump while a slider is being dragged. */
-  .stat .v { font-size:14px; font-variant-numeric:tabular-nums; margin-top:2px;
-    line-height:1.4; height:4.2em; overflow:hidden; }
+  .stat .v { font-size:14px; font-variant-numeric:tabular-nums; margin-top:2px; line-height:1.4; height:4.2em; overflow:hidden; }
   .axis { margin:18px 0; }
   .axis .label { display:flex; justify-content:space-between; margin-bottom:6px; }
   .axis .name { font-weight:600; }
@@ -88,8 +80,7 @@
     padding:10px; height:130px; overflow-y:auto; white-space:pre-wrap; }
   .log-err{color:var(--err);} .log-ok{color:var(--ok);} .log-info{color:var(--muted);}
   .hint { color:var(--muted); font-size:12px; margin-top:8px; }
-  select { background:#0c0e12; border:1px solid var(--line); color:var(--txt);
-    padding:8px 10px; border-radius:6px; font:inherit; }
+  select { background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:6px; font:inherit; }
   .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
   .seg button { border:none; border-radius:0; padding:8px 14px; background:#13161c; color:#c6ccd8; }
   .seg button.active { background:var(--accent); color:#fff; }
@@ -101,19 +92,80 @@
   .relayStat .side.green { color:#36c46b; }
   .relayStat .hold { color:var(--ok); }
   .relayStat .nohold { color:var(--warn); }
+
+  /* ---- game additions ---- */
+  #login { min-height:100vh; display:grid; place-items:center; padding:18px; }
+  #login[hidden], #app[hidden] { display:none; }
+  .namePanel { width:min(100%,520px); display:grid; gap:14px; padding:24px;
+    border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .namePanel h1 { margin:0; font-size:22px; }
+  .namePanel label { display:grid; gap:8px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; }
+  .namePanel input { width:100%; min-height:50px; font:800 20px/1.2 ui-monospace,Menlo,monospace; }
+  .namePanel button { min-height:52px; font-size:17px; font-weight:800; }
+  .gamebar { position:sticky; top:0; z-index:5; display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+    padding:10px 20px; background:#0c0e12; border-bottom:1px solid var(--line); }
+  .gamebar .teamName { font-weight:850; }
+  .gamebar .teamName.green { color:#36e07c; } .gamebar .teamName.purple { color:#b86bff; }
+  .gamebar .clk { font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .gamebar .gstatus { color:var(--muted); font-size:12px; }
+  .feedWrap { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:8px;
+    background:#030405; aspect-ratio:16 / 9; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  .feedBanner { position:absolute; inset:0; display:grid; place-items:center; background:rgba(0,0,0,.55);
+    color:var(--ok); font-size:clamp(28px,7vw,72px); font-weight:950; text-align:center; white-space:pre-line; }
+  .feedBanner[hidden] { display:none; }
+  label.check { display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; }
 </style>
   <link rel="stylesheet" href="/theme.css" />
 </head>
 <body>
+
+<!-- ===================== name gate ===================== -->
+<section id="login">
+  <form id="namePanel" class="namePanel" autocomplete="off">
+    <h1>Pick &amp; Place — <span id="loginTeam"></span></h1>
+    <label for="nameInput">Player name
+      <input id="nameInput" type="text" list="nameOptions" maxlength="32" autocomplete="off" required />
+    </label>
+    <datalist id="nameOptions"></datalist>
+    <button type="submit" class="primary">Continue</button>
+    <span id="nameStatus" class="hint" style="margin:0">Enter your name to begin.</span>
+  </form>
+</section>
+
+<!-- ===================== app ===================== -->
+<div id="app" hidden>
+<div class="gamebar">
+  <span class="teamName" id="teamName">—</span>
+  <span class="gstatus" id="playerName">—</span>
+  <span style="flex:1"></span>
+  <span class="clk" id="clock">--</span>
+  <button id="btnStart" class="ok">Start</button>
+  <button id="btnNew" hidden>New attempt</button>
+  <span class="gstatus" id="runStatus">Press Start when ready.</span>
+</div>
+
 <header>
-  <h1>MG400 Joint Angles Test</h1>
-  <span class="sub">Manual Override · joint-space prototype</span>
+  <h1>Pick &amp; Place — full arm controls</h1>
+  <span class="sub" id="armSub">Manual Override · joint-space</span>
   <span style="flex:1"></span>
   <span id="connPill" class="pill off"><span class="dot"></span><span id="connText">Disconnected</span></span>
   <span id="modePill" class="pill off"><span class="dot"></span><span id="modeText">—</span></span>
 </header>
 
 <main>
+  <section class="panel">
+    <h2>Live camera</h2>
+    <div class="feedWrap">
+      <img id="webcamFeed" alt="live game camera feed" />
+      <div id="feedBanner" class="feedBanner" hidden></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="check"><input type="checkbox" id="flipToggle" /> Flip my camera 180°</label>
+      <span class="hint" style="margin:0">Flip if your robot faces you from the far side.</span>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Connection</h2>
     <div class="row">
@@ -122,9 +174,7 @@
         <button type="button" data-link="direct" class="active">Direct</button>
         <button type="button" data-link="relay">Relay</button>
       </span>
-      <!-- Direct: talk to the MG400 by IP. -->
       <input type="text" id="ip" value="192.168.1.6" />
-      <!-- Relay: forward to a remote game-master relay over HTTP. -->
       <input type="text" id="relayHost" value="http://localhost:8000" style="width:200px;display:none" />
       <select id="relaySide" style="display:none">
         <option value="purple">Purple</option>
@@ -142,17 +192,14 @@
       <span id="relayHoldTxt"></span>
       <span id="relayLeaseTxt"></span>
     </div>
-    <div class="hint" id="connHint">Robot must be in API mode — see
-      docs/operations/dobot-api-mode.md. Connect opens control 29999 · motion
-      30003 · feedback 30004.</div>
+    <div class="hint" id="connHint">Robot must be in API mode. Connect opens control 29999 · motion 30003 · feedback 30004.</div>
   </section>
 
   <section class="panel">
     <h2>Stop</h2>
     <div class="estop-bar">
       <button id="btnStop" class="stop" disabled>Stop motion</button>
-      <span class="hint">“Stop motion” eases the arm to a halt. For a hard stop,
-        use the robot's mechanical E-stop button.</span>
+      <span class="hint">“Stop motion” eases the arm to a halt. For a hard stop, use the mechanical E-stop.</span>
     </div>
   </section>
 
@@ -176,8 +223,7 @@
     <div class="axis">
       <div class="label"><span class="name">Smoothness (ramp)</span><span class="val" id="smoothVal">0.50 s</span></div>
       <input type="range" id="smooth" min="0.05" max="0.8" step="0.05" value="0.50" disabled />
-      <div class="hint">Ramp-up / braking time. Higher = gentler start &amp; stop, no
-        overshoot; lower = snappier.</div>
+      <div class="hint">Ramp-up / braking time. Higher = gentler; lower = snappier.</div>
     </div>
   </section>
 
@@ -190,16 +236,14 @@
       <button id="btnSync" disabled>Sync sliders to robot</button>
       <span class="hint" id="limHint"></span>
     </div>
-    <div class="hint">Targets are clamped to each joint's limit. The controller
-      rejects anything still unreachable — shown in the log.</div>
+    <div class="hint">Targets are clamped to each joint's limit. Unreachable targets are rejected — shown in the log.</div>
   </section>
 
   <section class="panel">
     <h2>Saved locations</h2>
-    <div class="hint" style="margin-bottom:10px">Ten fixed slots — always callable as
-      <code>POST api/recall/&lt;1–10&gt;</code>, even when empty. Edit the label and
-      J1–J4, or <b>Set</b> to capture the current slider angles; <b>Recall</b> sends
-      the arm there (needs Connect → Enable). Saved across restarts.</div>
+    <div class="hint" style="margin-bottom:10px">Ten fixed slots. Edit the label and J1–J4, or
+      <b>Set</b> to capture the current slider angles; <b>Recall</b> sends the arm there
+      (needs Connect → Enable). Saved across restarts.</div>
     <div id="locList" class="loclist"></div>
   </section>
 
@@ -218,8 +262,168 @@
     <div id="log"></div>
   </section>
 </main>
+</div>
 
 <script>
+/* =====================================================================
+   Game layer — name gate, webcam feed (client-side 180 flip), per-player
+   timer, and finish marked by the gamemaster.
+   ===================================================================== */
+const TEAM = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] === 'green' ? 'green' : 'purple';
+const GM = `${location.origin}/s/gamemaster/p/pickup-game`;
+const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
+const JOINT = `${location.origin}/s/${TEAM}/p/joint-angles-test`;
+const NAME_HISTORY_KEY = 'pickup-game-player-names';
+const FLIP_KEY = `pickup-game-flip-${TEAM}`;
+const gid = id => document.getElementById(id);
+
+let gstate = null;
+let playerName = '';
+let clockHandle = 0;
+
+function cleanName(v) { return String(v || '').trim().slice(0, 32); }
+function nameHistory() {
+  try { const a = JSON.parse(localStorage.getItem(NAME_HISTORY_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch (_) { return []; }
+}
+function rememberName(name) {
+  const seen = new Set(), out = [];
+  for (const n of [name, ...nameHistory()].map(cleanName).filter(Boolean)) {
+    const k = n.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push(n);
+  }
+  localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(out.slice(0, 24)));
+  renderNameOptions();
+}
+function renderNameOptions() {
+  gid('nameOptions').innerHTML = '';
+  for (const n of nameHistory().slice(0, 8)) {
+    const o = document.createElement('option'); o.value = n; gid('nameOptions').appendChild(o);
+  }
+}
+
+async function gmFetch(path, opts = {}) {
+  const res = await fetch(GM + path, opts);
+  const text = await res.text();
+  let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+  if (!res.ok) throw new Error(data.error || text || `HTTP ${res.status}`);
+  return data;
+}
+
+function startWebcam() { gid('webcamFeed').src = `${WEBCAM}?t=${Date.now()}`; }
+function applyFlip() {
+  const on = gid('flipToggle').checked;
+  gid('webcamFeed').style.transform = on ? 'rotate(180deg)' : '';
+  localStorage.setItem(FLIP_KEY, on ? '1' : '0');
+}
+
+function showLogin() { gid('login').hidden = false; gid('app').hidden = true; }
+function showApp() { gid('login').hidden = true; gid('app').hidden = false; }
+function setBanner(text, show) { gid('feedBanner').hidden = !show; if (show) gid('feedBanner').textContent = text; }
+
+async function submitName(ev) {
+  ev.preventDefault();
+  const name = cleanName(gid('nameInput').value);
+  if (!name) { gid('nameStatus').textContent = 'Enter your name to begin.'; return; }
+  gid('nameStatus').textContent = 'Registering…';
+  try {
+    const s = await gmFetch('/api/player', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team: TEAM, name }),
+    });
+    playerName = name;
+    rememberName(name);
+    gameApplyState(s);
+    showApp();
+  } catch (e) { gid('nameStatus').textContent = `Failed: ${e.message}`; }
+}
+
+function myTeam(s) { return (s && s.teams && s.teams[TEAM]) || {}; }
+function stopClock() { clearInterval(clockHandle); clockHandle = 0; }
+function startClock() {
+  stopClock();
+  const tick = () => {
+    const ts = myTeam(gstate);
+    if (ts.phase !== 'running' || !ts.started_at) return;
+    gid('clock').textContent = `${Math.max(0, (Date.now() / 1000) - Number(ts.started_at)).toFixed(1)}s`;
+  };
+  tick();
+  clockHandle = setInterval(tick, 100);
+}
+
+async function pressStart() {
+  gid('btnStart').disabled = true;
+  gid('runStatus').textContent = 'Starting…';
+  try { gameApplyState(await gmFetch('/api/start', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team: TEAM }),
+  })); }
+  catch (e) { gid('btnStart').disabled = false; gid('runStatus').textContent = `Start failed: ${e.message}`; }
+}
+async function pressNew() {
+  try { await gmFetch('/api/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team: TEAM }),
+  }); } catch (_) {}
+  gid('nameInput').value = playerName;
+  renderNameOptions();
+  gid('nameStatus').textContent = 'Enter your name to begin.';
+  showLogin();
+}
+
+function gameApplyState(s) {
+  gstate = s || {};
+  const ts = myTeam(gstate);
+  const phase = ts.phase || 'idle';
+  gid('playerName').textContent = ts.player || playerName || '—';
+
+  if (phase === 'running') {
+    gid('btnStart').hidden = true; gid('btnNew').hidden = true;
+    gid('runStatus').textContent = 'Running — gamemaster will mark you finished.';
+    setBanner('', false);
+    startClock();
+  } else if (phase === 'done') {
+    stopClock();
+    gid('clock').textContent = `${Number(ts.elapsed_seconds).toFixed(1)}s`;
+    gid('btnStart').hidden = true; gid('btnNew').hidden = false;
+    gid('runStatus').textContent = `Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s!`;
+    setBanner(`FINISHED\n${Number(ts.elapsed_seconds).toFixed(1)}s`, true);
+  } else { // idle | ready
+    stopClock();
+    gid('clock').textContent = '--';
+    gid('btnStart').hidden = false; gid('btnStart').disabled = false; gid('btnNew').hidden = true;
+    gid('runStatus').textContent = 'Press Start when ready. Your clock begins immediately.';
+    setBanner('', false);
+    // gamemaster reset us while we were in the app → back to the name gate
+    if (phase === 'idle' && !gid('app').hidden && !ts.player && playerName) showLogin();
+  }
+}
+
+function gameInit() {
+  gid('loginTeam').textContent = TEAM.charAt(0).toUpperCase() + TEAM.slice(1);
+  gid('teamName').textContent = TEAM.toUpperCase();
+  gid('teamName').className = 'teamName ' + TEAM;
+  renderNameOptions();
+  gid('namePanel').addEventListener('submit', submitName);
+  gid('btnStart').addEventListener('click', pressStart);
+  gid('btnNew').addEventListener('click', pressNew);
+  gid('flipToggle').checked = localStorage.getItem(FLIP_KEY) === '1';
+  gid('flipToggle').addEventListener('change', applyFlip);
+  applyFlip();
+  startWebcam();
+  gid('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
+
+  gmFetch('/api/state').then(gameApplyState).catch(() => {});
+  const es = new EventSource(`${GM}/api/events`);
+  es.onmessage = e => { try { gameApplyState(JSON.parse(e.data)); } catch (_) {} };
+}
+gameInit();
+
+
+/* =====================================================================
+   Full joint-angle controller (from joint-angles-test), pointed at this
+   team's joint-angles-test backend via JOINT.
+   ===================================================================== */
+const BASE = JOINT + '/';
 const AXIS_DEFS = [
   { id:"j1", name:"J1 — base rotation", step:0.5 },
   { id:"j2", name:"J2 — arm joint 1",   step:0.5 },
@@ -230,10 +434,8 @@ const UNIT = "°";
 let limits = { j1:[-160,160], j2:[-25,85], j3:[-25,105], j4:[-160,160] };
 let connected = false;
 let sliderEls = {};
-const numEls = {};   // per-axis type-in number boxes, kept in sync with the sliders
+const numEls = {};
 let lastServoError = null, pumpMode = "off";
-// id of the slider being dragged in THIS window (or null); cross-window sync
-// follows the server target but never clobbers the slider you're holding.
 let draggingId = null;
 window.addEventListener("pointerup", () => draggingId = null);
 window.addEventListener("keyup", () => draggingId = null);
@@ -245,9 +447,6 @@ function log(msg, cls="log-info") {
   line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   el.appendChild(line); el.scrollTop = el.scrollHeight;
 }
-// Resolve API paths relative to this page's directory so the prototype works
-// wherever the hub mounts it (e.g. /p/joint-angles-test/).
-const BASE = location.pathname.replace(/\/[^/]*$/, "/");
 
 async function api(path, body, method) {
   const opts = { method: method || (body ? "POST" : "GET") };
@@ -262,7 +461,6 @@ function report(name, res) {
 }
 
 const fmtAxis = v => (typeof v === "number" ? v : parseFloat(v)).toFixed(1);
-// Push a value into an axis's number box, unless the user is typing in it.
 function showAxis(def, v) {
   const num = numEls[def.id];
   if (num && num !== document.activeElement) num.value = fmtAxis(v);
@@ -294,11 +492,9 @@ function buildAxes() {
     sliderEls[def.id] = el;
     numEls[def.id] = num;
     el.addEventListener("input", () => { showAxis(def, el.value); queueMove(); });
-    // mark which slider the user is dragging so cross-window sync doesn't fight it
     el.addEventListener("pointerdown", () => draggingId = def.id);
     el.addEventListener("keydown", () => draggingId = def.id);
-    // type an exact value: clamp into the joint limit, move the slider, send it
-    num.addEventListener("focus", () => draggingId = def.id);   // hold off sync while typing
+    num.addEventListener("focus", () => draggingId = def.id);
     num.addEventListener("blur", () => draggingId = null);
     num.addEventListener("change", () => {
       const [lo, hi] = limits[def.id];
@@ -362,8 +558,6 @@ function setControlsEnabled(on) {
   document.getElementById("btnConnect").disabled = on;
 }
 
-// Relay link status line: side (purple/green), whether we hold the floor, and
-// the remaining lease. Hidden in direct mode.
 function applyRelayStatus(s) {
   const bar = document.getElementById("relayStat");
   if (s.link !== "relay") { bar.classList.remove("show"); return; }
@@ -378,19 +572,17 @@ function applyRelayStatus(s) {
     : (s.holder ? `held by ${s.holder}` : "no holder");
   hold.className = holds ? "hold" : "nohold";
   const lease = document.getElementById("relayLeaseTxt");
-  lease.textContent = (typeof s.lease_secs === "number")
-    ? `lease ${s.lease_secs.toFixed(1)} s` : "";
+  lease.textContent = (typeof s.lease_secs === "number") ? `lease ${s.lease_secs.toFixed(1)} s` : "";
 }
 
-async function poll() { applyStatus(await api("/api/status")); }   // one-shot pull
+async function poll() { applyStatus(await api("/api/status")); }
 function applyStatus(s) {
   const connPill = document.getElementById("connPill");
   connPill.className = "pill " + (s.connected ? "on" : "off");
   document.getElementById("connText").textContent = s.connected ? "Connected" : "Disconnected";
 
   document.getElementById("modeText").textContent = s.mode_name || "—";
-  document.getElementById("modePill").className =
-    "pill " + (s.error ? "error" : (s.enabled ? "on" : "off"));
+  document.getElementById("modePill").className = "pill " + (s.error ? "error" : (s.enabled ? "on" : "off"));
   if (s.connected !== connected) setControlsEnabled(s.connected);
 
   applyRelayStatus(s);
@@ -420,9 +612,6 @@ function applyStatus(s) {
     });
   }
 
-  // Cross-window slider sync: follow the server's commanded target so several
-  // controller windows stay in lock-step. Skip the slider this window is
-  // actively dragging; the deadband avoids float jitter.
   if (Array.isArray(s.target)) {
     AXIS_DEFS.forEach((def, i) => {
       if (draggingId === def.id) return;
@@ -446,9 +635,6 @@ function applyStatus(s) {
   applySlots(s.slots || []);
 }
 
-// ---- saved locations: 10 fixed slots ---------------------------------------
-// Built once (always present), then updated in place from the live stream — so
-// the recall buttons / API endpoints are stable even while a slot is empty.
 const JK = ["j1","j2","j3","j4"];
 const slotEls = [];
 function buildSlots() {
@@ -497,15 +683,12 @@ function patchSlotPose(i) {
     j1: +r.j1.value || 0, j2: +r.j2.value || 0, j3: +r.j3.value || 0, j4: +r.j4.value || 0 } });
 }
 
-// Push the latest slot data into the fixed rows, skipping any field being edited.
 function applySlots(slots) {
   slots.forEach((s, i) => {
     const r = slotEls[i];
     if (!r) return;
     if (document.activeElement !== r.name) r.name.value = s.name || "";
-    JK.forEach(k => {
-      if (document.activeElement !== r[k]) r[k].value = s.set ? s[k] : "";
-    });
+    JK.forEach(k => { if (document.activeElement !== r[k]) r[k].value = s.set ? s[k] : ""; });
     r.row.classList.toggle("empty", !s.set);
     r.recall.disabled = !s.set || !connected;
   });
@@ -525,28 +708,19 @@ function syncSliders() {
   });
 }
 
-// Connection link mode: "direct" (IP) or "relay" (remote game-master). Toggling
-// just swaps which inputs are shown; Connect sends the matching JSON body.
 let linkMode = "direct";
 function setLinkMode(mode) {
   linkMode = mode;
-  document.querySelectorAll("#linkSeg button").forEach(b =>
-    b.classList.toggle("active", b.dataset.link === mode));
+  document.querySelectorAll("#linkSeg button").forEach(b => b.classList.toggle("active", b.dataset.link === mode));
   const relay = mode === "relay";
   document.getElementById("ip").style.display = relay ? "none" : "";
   document.getElementById("relayHost").style.display = relay ? "" : "none";
   document.getElementById("relaySide").style.display = relay ? "" : "none";
   document.getElementById("connHint").textContent = relay
-    ? "Relay link: commands forward to the game-master relay over HTTP (no robot on this LAN). Pick your side, then Connect to take the floor."
-    : "Robot must be in API mode — see docs/operations/dobot-api-mode.md. "
-      + "Connect opens control 29999 · motion 30003 · feedback 30004.";
+    ? "Relay link: commands forward to the game-master relay over HTTP. Pick your side, then Connect."
+    : "Robot must be in API mode. Connect opens control 29999 · motion 30003 · feedback 30004.";
 }
 
-// Player copies (green/purple sandbox) are locked down: relay link only, own
-// color only. The hub tells this page who it is via /api/config identity; the
-// gamemaster copy of this SAME page keeps the Direct/Relay toggle and the side
-// choice. (The server enforces the same rules — this just hides what a player
-// can't use anyway.)
 function applyIdentity(ident) {
   if (!ident || !ident.is_player) return;
   setLinkMode("relay");
@@ -554,16 +728,13 @@ function applyIdentity(ident) {
   const sideSel = document.getElementById("relaySide");
   sideSel.value = ident.side;
   sideSel.disabled = true;
-  document.querySelector("header .sub").textContent =
-    `Manual Override · ${ident.side} player`;
+  document.getElementById("armSub").textContent = `Manual Override · ${ident.side} player`;
   document.getElementById("connHint").textContent =
-    `You are the ${ident.side.toUpperCase()} player — this controller connects ` +
-    `through the game-master relay and drives the ${ident.side} arm only.`;
+    `You are the ${ident.side.toUpperCase()} player — this connects through the relay and drives the ${ident.side} arm only.`;
 }
 
 function wire() {
-  document.querySelectorAll("#linkSeg button").forEach(b =>
-    b.onclick = () => setLinkMode(b.dataset.link));
+  document.querySelectorAll("#linkSeg button").forEach(b => b.onclick = () => setLinkMode(b.dataset.link));
   document.getElementById("btnConnect").onclick = async () => {
     if (linkMode === "relay") {
       const host = document.getElementById("relayHost").value.trim();
@@ -576,41 +747,30 @@ function wire() {
       report("connect", await api("/api/connect", { mode:"direct", ip }));
     }
   };
-  document.getElementById("btnDisconnect").onclick = async () =>
-    report("disconnect", await api("/api/disconnect", {}));
+  document.getElementById("btnDisconnect").onclick = async () => report("disconnect", await api("/api/disconnect", {}));
   document.getElementById("btnEnable").onclick = async () => {
     const res = report("enable", await api("/api/enable", {}));
-    if (res.ok) setTimeout(syncSliders, 300);  // align sliders to start pose
+    if (res.ok) setTimeout(syncSliders, 300);
   };
-  document.getElementById("btnDisable").onclick = async () =>
-    report("disable", await api("/api/disable", {}));
+  document.getElementById("btnDisable").onclick = async () => report("disable", await api("/api/disable", {}));
   document.getElementById("btnClear").onclick = async () => {
     const c = report("clear error", await api("/api/clear_error", {}));
     if (!c.ok) return;
-    // Re-arm so you can drive again: clearing the error alone leaves the servo
-    // follower stopped, so Enable (restarts ServoJ + holds the current pose) is
-    // the documented next step — do it automatically.
     const e = report("enable", await api("/api/enable", {}));
     if (e.ok) setTimeout(syncSliders, 300);
   };
-  document.getElementById("btnStop").onclick = async () => {
-    report("stop / hold", await api("/api/stop", {})); syncSliders();
-  };
+  document.getElementById("btnStop").onclick = async () => { report("stop / hold", await api("/api/stop", {})); syncSliders(); };
   document.getElementById("btnSync").onclick = syncSliders;
-  document.getElementById("btnSuck").onclick = async () =>
-    report("vacuum (pull)", await api("/api/pump", { mode:"suck" }));
-  document.getElementById("btnBlow").onclick = async () =>
-    report("blow (push)", await api("/api/pump", { mode:"blow" }));
-  document.getElementById("btnPumpOff").onclick = async () =>
-    report("pump off", await api("/api/pump", { mode:"off" }));
+  document.getElementById("btnSuck").onclick = async () => report("vacuum (pull)", await api("/api/pump", { mode:"suck" }));
+  document.getElementById("btnBlow").onclick = async () => report("blow (push)", await api("/api/pump", { mode:"blow" }));
+  document.getElementById("btnPumpOff").onclick = async () => report("pump off", await api("/api/pump", { mode:"off" }));
 
   const speed = document.getElementById("speed");
   let speedTimer = null;
   speed.addEventListener("input", () => {
     document.getElementById("speedVal").textContent = speed.value + "%";
     clearTimeout(speedTimer);
-    speedTimer = setTimeout(async () =>
-      report("speed", await api("/api/speed", { ratio: parseInt(speed.value) })), 150);
+    speedTimer = setTimeout(async () => report("speed", await api("/api/speed", { ratio: parseInt(speed.value) })), 150);
   });
 
   const smooth = document.getElementById("smooth");
@@ -618,8 +778,7 @@ function wire() {
   smooth.addEventListener("input", () => {
     document.getElementById("smoothVal").textContent = (+smooth.value).toFixed(2) + " s";
     clearTimeout(smoothTimer);
-    smoothTimer = setTimeout(async () =>
-      report("smoothness", await api("/api/smoothness", { secs: parseFloat(smooth.value) })), 150);
+    smoothTimer = setTimeout(async () => report("smoothness", await api("/api/smoothness", { secs: parseFloat(smooth.value) })), 150);
   });
 }
 
@@ -627,16 +786,15 @@ async function init() {
   const cfg = await api("/api/config");
   if (cfg.joint_limits) limits = cfg.joint_limits;
   if (cfg.default_ip) document.getElementById("ip").value = cfg.default_ip;
-  // The relay runs on this same hub — pre-fill the relay host with this server.
   if (cfg.relay_host_default) document.getElementById("relayHost").value = cfg.relay_host_default;
   buildAxes();
   buildSlots();
   wire();
   setLinkMode("direct");
-  applyIdentity(cfg.identity);   // player copy → relay-only, side locked
+  applyIdentity(cfg.identity);
   setControlsEnabled(false);
-  poll();   // initial paint
-  const es = new EventSource(BASE + "api/events");   // live pushes; auto-reconnects
+  poll();
+  const es = new EventSource(BASE + "api/events");
   es.onmessage = e => { try { applyStatus(JSON.parse(e.data)); } catch (_) {} };
   log("Ready. Put the robot in API mode, then Connect → Enable.", "log-info");
 }

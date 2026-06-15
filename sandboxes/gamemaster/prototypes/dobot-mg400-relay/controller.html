@@ -96,6 +96,22 @@
 <main>
   <div class="arms" id="arms"></div>
 
+  <section class="panel zfloor">
+    <h2>Z soft limit</h2>
+    <div class="row" style="gap:12px; align-items:center; flex-wrap:wrap">
+      <label class="zlab"><input type="checkbox" id="zEnabled" /> Enforce floor</label>
+      <span class="zlab">Floor Z (mm)</span>
+      <input type="number" id="zValue" step="1"
+        style="width:100px;background:#0c0e12;border:1px solid var(--line);color:var(--txt);padding:8px 10px;border-radius:6px;font:inherit" />
+      <button class="primary" id="zSave">Save</button>
+      <span class="hint" id="zStatus" style="margin:0"></span>
+    </div>
+    <div class="hint" id="zLive" style="margin-top:8px">—</div>
+    <div class="hint" style="margin-top:6px">The arm won't jog its tool below this height.
+      It learns each arm's height model from motion — jog J2/J3 around once and the clamp
+      becomes smooth; until then it simply holds height once at/below the floor.</div>
+  </section>
+
   <section class="panel monitor">
     <h2>Command monitor</h2>
     <div id="cmdLog" class="cmdLog"></div>
@@ -204,12 +220,34 @@ function applyArm(side, arm, sideInfo) {
   } else c.sServoErr.style.display = "none";
 }
 
+let zInit = false;
+function applyZFloor(s) {
+  const z = s.z_floor || {};
+  if (!zInit) {
+    if (document.activeElement !== document.getElementById("zValue"))
+      document.getElementById("zValue").value = (z.value != null ? z.value : -72);
+    document.getElementById("zEnabled").checked = z.enabled !== false;
+    zInit = true;
+  }
+  const arms = s.arms || {};
+  const parts = SIDES.map(side => {
+    const pose = (arms[side] || {}).pose;
+    const zz = Array.isArray(pose) ? pose[2] : null;
+    const ready = z.models && z.models[side];
+    return `${side}: Z ${zz == null ? "—" : zz.toFixed(1)} mm ${ready ? "(model ✓)" : "(learning…)"}`;
+  });
+  document.getElementById("zLive").textContent =
+    (z.enabled === false ? "floor OFF · " : `floor ${z.value != null ? z.value : -72} mm · `)
+    + parts.join("   ·   ");
+}
+
 function applyState(s) {
   if (!s) return;
   const arms = s.arms || {};
   const sides = s.sides || {};
   SIDES.forEach(side => applyArm(side, arms[side], sides[side]));
   applyCommandLog(s.command_log || []);
+  applyZFloor(s);
 }
 
 function payloadText(payload) {
@@ -250,6 +288,13 @@ function applyCommandLog(rows) {
 async function init() {
   const cfg = await api("/api/config");
   buildCards(cfg.default_links || {});
+  document.getElementById("zSave").onclick = async () => {
+    const value = parseFloat(document.getElementById("zValue").value);
+    if (Number.isNaN(value)) { document.getElementById("zStatus").textContent = "enter a number"; return; }
+    document.getElementById("zStatus").textContent = "saving…";
+    const res = await api("/api/z-floor", { value, enabled: document.getElementById("zEnabled").checked });
+    document.getElementById("zStatus").textContent = res.ok ? "saved ✓" : ("error: " + (res.error || ""));
+  };
   applyState(await api("/api/state"));   // initial paint
   const es = new EventSource(U("/api/events"));   // live pushes; auto-reconnects
   es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch (_) {} };

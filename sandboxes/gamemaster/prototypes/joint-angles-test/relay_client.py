@@ -265,7 +265,9 @@ class RelayClient:
         })
         if not body or not body.get("ok"):
             return False, (body or {}).get("error", "relay move failed")
-        return True, None
+        # Surface the relay's safety note (e.g. a Z soft-floor clamp) so the UI can
+        # explain why a slider snapped back instead of moving.
+        return True, (body.get("clamped") or {}).get("z_floor")
 
     def hold(self):
         token = self._token

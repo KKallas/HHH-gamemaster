@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pick &amp; Place — Game Master</title>
+<link rel="stylesheet" href="/theme.css" />
+<style>
+  main { max-width: 1180px; margin: 0 auto; padding: 14px 20px 28px; }
+  .topbar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .topbar h1 { margin:0; font-size:18px; }
+  .topbar .sub { color:var(--muted); font-size:12px; }
+  .layout { display:grid; grid-template-columns: 1.3fr 1fr; gap:16px; align-items:start; }
+  @media (max-width: 920px) { .layout { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  .feedWrap { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:#030405; aspect-ratio:16 / 9; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  .teams { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width: 560px) { .teams { grid-template-columns:1fr; } }
+  .team { border:1px solid var(--line); border-radius:10px; padding:14px; background:#13161c; border-top:4px solid var(--line); }
+  .team.green { border-top-color:#36e07c; }
+  .team.purple { border-top-color:#b86bff; }
+  .team .who { font-size:13px; font-weight:850; display:flex; gap:8px; align-items:center; }
+  .team .dot { width:10px; height:10px; border-radius:50%; }
+  .team.green .dot { background:#36e07c; } .team.purple .dot { background:#b86bff; }
+  .team .name { margin-top:4px; font-size:18px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .team .name.empty { color:var(--muted); font-weight:600; font-size:14px; }
+  .team .timer { margin:8px 0 12px; font-size:34px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .team .ph { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .team .ph.running { color:#36c46b; } .team .ph.done { color:var(--warn); } .team .ph.ready { color:var(--accent); }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt); padding:9px 14px; border-radius:6px; font:inherit; cursor:pointer; min-height:42px; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.finish { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:850; width:100%; }
+  button.reset { background:#2a1216; border-color:#5a2630; color:#ff8a96; width:100%; margin-top:8px; }
+  .bestCard { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .bestCard .k { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
+  .bestCard .v { margin-top:3px; font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  td.num { font-variant-numeric:tabular-nums; text-align:right; }
+  td.tg.green { color:#36e07c; } td.tg.purple { color:#b86bff; }
+  .results-wrap { max-height:300px; overflow:auto; }
+  .empty-row { color:var(--muted); font-size:13px; padding:10px 2px; }
+  a.dl { color:var(--accent); font-size:13px; text-decoration:none; }
+  a.dl:hover { text-decoration:underline; }
+  .hint { color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>Pick &amp; Place</h1>
+    <span class="sub">Game Master · mark each team finished when its block lands on the mark</span>
+    <span style="flex:1"></span>
+    <a class="dl" href="api/log.csv" download>⭳ pickup-log.csv</a>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="panel">
+        <h2>Live camera</h2>
+        <div class="feedWrap"><img id="webcamFeed" alt="live game camera feed" /></div>
+      </div>
+
+      <div class="panel">
+        <h2>Players</h2>
+        <div class="teams">
+          <div class="team green" id="team-green">
+            <div class="who"><span class="dot"></span>Green</div>
+            <div class="name empty" id="name-green">no player</div>
+            <div class="timer" id="timer-green">--</div>
+            <div class="ph" id="ph-green">idle</div>
+            <button class="finish" id="finish-green" disabled>Mark Green finished</button>
+            <button class="reset" id="reset-green">Reset Green</button>
+          </div>
+          <div class="team purple" id="team-purple">
+            <div class="who"><span class="dot"></span>Purple</div>
+            <div class="name empty" id="name-purple">no player</div>
+            <div class="timer" id="timer-purple">--</div>
+            <div class="ph" id="ph-purple">idle</div>
+            <button class="finish" id="finish-purple" disabled>Mark Purple finished</button>
+            <button class="reset" id="reset-purple">Reset Purple</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="panel">
+        <h2>Best time</h2>
+        <div class="bestCard"><div class="k">Fastest run</div><div class="v" id="bestTime">--</div></div>
+      </div>
+      <div class="panel">
+        <h2>Results <span id="resultCount" class="hint"></span></h2>
+        <div class="results-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Secs</th><th>When</th></tr></thead>
+            <tbody id="resultsBody"><tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const BASE = location.pathname.replace(/\/[^/]*$/, "/");
+const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
+const TEAMS = ["green", "purple"];
+const el = id => document.getElementById(id);
+let state = null;
+let timerHandle = 0;
+
+async function api(path, body) {
+  const opts = { method: body ? "POST" : "GET" };
+  if (body) { opts.headers = { "Content-Type": "application/json" }; opts.body = JSON.stringify(body); }
+  const res = await fetch(BASE + path.replace(/^\//, ""), opts);
+  const text = await res.text();
+  let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function fmtSecs(v) { return (v == null || !Number.isFinite(Number(v))) ? "--" : `${Number(v).toFixed(1)}s`; }
+function fmtWhen(iso) { if (!iso) return "—"; const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(); }
+function startWebcam() { el("webcamFeed").src = `${WEBCAM}?t=${Date.now()}`; }
+
+function stopTimerTick() { clearInterval(timerHandle); timerHandle = 0; }
+function startTimerTick() {
+  stopTimerTick();
+  const tick = () => {
+    if (!state) return;
+    for (const t of TEAMS) {
+      const ts = state.teams[t];
+      if (ts.phase === "running" && ts.started_at)
+        el(`timer-${t}`).textContent = `${Math.max(0, (Date.now() / 1000) - Number(ts.started_at)).toFixed(1)}s`;
+    }
+  };
+  tick();
+  timerHandle = setInterval(tick, 100);
+}
+
+function applyState(s) {
+  state = s || {};
+  let anyRunning = false;
+  for (const t of TEAMS) {
+    const ts = (state.teams && state.teams[t]) || {};
+    const phase = ts.phase || "idle";
+    el(`name-${t}`).textContent = ts.player || "no player";
+    el(`name-${t}`).classList.toggle("empty", !ts.player);
+    el(`ph-${t}`).textContent = phase;
+    el(`ph-${t}`).className = "ph " + phase;
+    el(`finish-${t}`).disabled = phase !== "running";
+    if (phase === "running") { anyRunning = true; }
+    else el(`timer-${t}`).textContent = phase === "done" ? fmtSecs(ts.elapsed_seconds) : "--";
+  }
+  const b = state.best_seconds;
+  el("bestTime").textContent = b != null
+    ? `${fmtSecs(b)}${state.best_player ? " · " + state.best_player : ""}${state.best_team ? " (" + state.best_team + ")" : ""}` : "--";
+  if (anyRunning) startTimerTick(); else stopTimerTick();
+}
+
+async function refreshResults() {
+  try {
+    const data = await api("/api/results");
+    const rows = data.results || [];
+    el("resultCount").textContent = data.count ? `(${data.count} total)` : "";
+    if (!rows.length) { el("resultsBody").innerHTML = `<tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr>`; return; }
+    const best = data.best && data.best.seconds;
+    el("resultsBody").innerHTML = rows.map((r, i) => {
+      const isBest = best != null && Number(r.elapsed_seconds) === Number(best);
+      return `<tr${isBest ? ' style="color:var(--ok);font-weight:800"' : ''}>
+        <td>${data.count - i}</td>
+        <td>${escapeHtml(r.player || "—")}${isBest ? " ★" : ""}</td>
+        <td class="tg ${r.team === 'green' || r.team === 'purple' ? r.team : ''}">${escapeHtml(r.team || "—")}</td>
+        <td class="num">${Number(r.elapsed_seconds).toFixed(1)}</td>
+        <td>${fmtWhen(r.logged_at)}</td></tr>`;
+    }).join("");
+  } catch (_) {}
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+function wire() {
+  for (const t of TEAMS) {
+    el(`finish-${t}`).onclick = async () => { try { applyState(await api("/api/finish", { team: t })); refreshResults(); } catch (e) { alert(e.message); } };
+    el(`reset-${t}`).onclick = async () => { try { applyState(await api("/api/reset", { team: t })); } catch (e) { alert(e.message); } };
+  }
+}
+
+async function init() {
+  wire();
+  startWebcam();
+  el("webcamFeed").onerror = () => setTimeout(startWebcam, 1000);
+  try { applyState(await api("/api/state")); } catch (_) {}
+  refreshResults();
+  const es = new EventSource(BASE + "api/events");
+  es.onmessage = e => {
+    try {
+      const s = JSON.parse(e.data);
+      const before = TEAMS.map(t => state && state.teams[t] && state.teams[t].phase).join();
+      applyState(s);
+      const after = TEAMS.map(t => s.teams[t] && s.teams[t].phase).join();
+      if (before !== after) refreshResults();
+    } catch (_) {}
+  };
+}
+init();
+</script>
+</body>
+</html>

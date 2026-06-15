@@ -31,6 +31,7 @@ Put each robot in API mode first — see ../../docs/operations/dobot-api-mode.md
 Safety: keep the hardware E-stop within reach; start with a low speed.
 """
 
+import json
 import math
 import os
 import sys
@@ -250,6 +251,145 @@ def _clamp_pose(x, y, z, r):
     return x, y, z, r
 
 
+# ---- Z soft-floor guard ----------------------------------------------------
+# A configurable Cartesian Z floor (mm, in the arm's base frame) the TCP may not
+# drop below while jogging joints. We read the ACTUAL pose Z from each arm's
+# feedback and learn a small local height model z ≈ a + b·J2 + c·J3 per side
+# (J1/J4 don't change height), so a descending joint target can be clamped to
+# stop exactly at the floor instead of crashing through it. Until enough motion
+# has been seen to fit a model, we fall back to simply holding the current J2/J3
+# whenever the arm is already at/below the floor. Operator-editable from the
+# relay screen; persisted across restarts.
+Z_FLOOR_PATH = os.path.join(HERE, "z-floor.json")
+DEFAULT_Z_FLOOR = -72.0
+_z_lock = threading.Lock()
+_z_floor = DEFAULT_Z_FLOOR
+_z_floor_enabled = True
+_z_samples = {s: deque(maxlen=80) for s in SIDES}   # recent (j2, j3, z) feedback
+_z_coef = {s: None for s in SIDES}                  # fitted (a, b, c) or None
+_Z_MIN_SAMPLES = 12
+_Z_MIN_SPREAD = 5.0   # deg — need this much J2 and J3 variation to trust slopes
+
+
+def _load_z_floor():
+    global _z_floor, _z_floor_enabled
+    try:
+        with open(Z_FLOOR_PATH) as f:
+            data = json.load(f)
+        _z_floor = float(data.get("z_floor", DEFAULT_Z_FLOOR))
+        _z_floor_enabled = bool(data.get("enabled", True))
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def _save_z_floor():
+    try:
+        with open(Z_FLOOR_PATH, "w") as f:
+            json.dump({"z_floor": _z_floor, "enabled": _z_floor_enabled}, f, indent=2)
+    except OSError:
+        pass
+
+
+def _solve3(S, rhs):
+    """Solve the 3x3 system S·x = rhs by Cramer's rule. None if near-singular."""
+    def det3(m):
+        return (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+    d = det3(S)
+    if abs(d) < 1e-6:
+        return None
+    out = []
+    for col in range(3):
+        m = [row[:] for row in S]
+        for row in range(3):
+            m[row][col] = rhs[row]
+        out.append(det3(m) / d)
+    return out  # [a, b, c]
+
+
+def _refit_z_model(side):
+    samples = _z_samples[side]
+    if len(samples) < _Z_MIN_SAMPLES:
+        _z_coef[side] = None
+        return
+    j2s = [s[0] for s in samples]
+    j3s = [s[1] for s in samples]
+    if (max(j2s) - min(j2s) < _Z_MIN_SPREAD) or (max(j3s) - min(j3s) < _Z_MIN_SPREAD):
+        _z_coef[side] = None   # not enough variation to pin both slopes
+        return
+    zs = [s[2] for s in samples]
+    n = len(samples)
+    sj2, sj3, sz = sum(j2s), sum(j3s), sum(zs)
+    sj2j2 = sum(a * a for a in j2s)
+    sj3j3 = sum(a * a for a in j3s)
+    sj2j3 = sum(j2s[i] * j3s[i] for i in range(n))
+    sj2z = sum(j2s[i] * zs[i] for i in range(n))
+    sj3z = sum(j3s[i] * zs[i] for i in range(n))
+    S = [[n, sj2, sj3], [sj2, sj2j2, sj2j3], [sj3, sj2j3, sj3j3]]
+    coef = _solve3(S, [sz, sj2z, sj3z])
+    _z_coef[side] = tuple(coef) if coef else None
+
+
+def _sample_z_model(side, robot):
+    """Feed one feedback sample (only if the arm moved enough) and refit."""
+    try:
+        st = robot.get_state()
+        joints, pose = st.get("joints"), st.get("pose")
+        j2, j3, z = float(joints[1]), float(joints[2]), float(pose[2])
+    except (TypeError, ValueError, IndexError):
+        return
+    dq = _z_samples[side]
+    if dq:
+        lj2, lj3, _ = dq[-1]
+        if abs(j2 - lj2) < 0.5 and abs(j3 - lj3) < 0.5:
+            return
+    dq.append((j2, j3, z))
+    _refit_z_model(side)
+
+
+def _apply_z_floor(side, j1, j2, j3, j4, robot):
+    """Clamp a joint target so the TCP won't drop below the Z floor. Returns
+    (j1, j2, j3, j4, note); note is a human string if anything was changed."""
+    with _z_lock:
+        floor, enabled = _z_floor, _z_floor_enabled
+    if not enabled:
+        return j1, j2, j3, j4, None
+    try:
+        st = robot.get_state()
+        joints, pose = st.get("joints"), st.get("pose")
+        aj2, aj3, az = float(joints[1]), float(joints[2]), float(pose[2])
+    except (TypeError, ValueError, IndexError):
+        return j1, j2, j3, j4, None
+    coef = _z_coef[side]
+    if coef is None:
+        # No reliable height model yet — allow the move. We must NOT freeze J2/J3
+        # here: freezing them stops the very motion the model is learned from, so
+        # the arm could never escape (and an arm resting below the floor would be
+        # locked out entirely). Jog J2/J3 around once; the model fits within a
+        # second or two and the predictive clamp below takes over.
+        return j1, j2, j3, j4, None
+    _a, b, c = coef
+    dz = b * (j2 - aj2) + c * (j3 - aj3)     # predicted Z change from here to target
+    if (az + dz) >= floor or dz >= 0:
+        return j1, j2, j3, j4, None           # target stays above floor (or rises)
+    alpha = max(0.0, min(1.0, (floor - az) / dz))   # fraction of the descent allowed
+    nj2 = aj2 + alpha * (j2 - aj2)
+    nj3 = aj3 + alpha * (j3 - aj3)
+    return j1, nj2, nj3, j4, f"z-floor {floor:.0f}mm: clamped descent"
+
+
+def _is_operator_request():
+    """True for gamemaster/admin sessions (or engine runs without the auth layer)."""
+    roles = request.environ.get("hhh.roles")
+    if roles is None:
+        return True
+    return bool(roles - set(SIDES))
+
+
+_load_z_floor()
+
+
 def _apply_motion(robot, mode):
     """Push conservative velocity + acceleration caps to the follower for `mode`
     (accel = velocity-cap / ramp-time)."""
@@ -318,6 +458,12 @@ def _watchdog_loop():
     period = 1.0 / WATCHDOG_HZ
     while True:
         time.sleep(period)
+        # Learn each connected+enabled arm's height model from live feedback so the
+        # Z floor can clamp descending joint targets smoothly.
+        for s in SIDES:
+            robot = _arm(s)
+            if robot is not None and robot.is_connected() and robot.get_state().get("enabled"):
+                _sample_z_model(s, robot)
         expired = []
         with _arb_lock:
             for s in SIDES:
@@ -397,6 +543,12 @@ def _state_dict():
             "sides": sides,
             "command_log": _command_log_snapshot(),
         }
+    with _z_lock:
+        state["z_floor"] = {
+            "value": _z_floor,
+            "enabled": _z_floor_enabled,
+            "models": {s: (_z_coef[s] is not None) for s in SIDES},
+        }
     return state
 
 
@@ -418,6 +570,8 @@ def config():
         "sides": list(SIDES),
         "modes": list(MODES),
         "lease_secs": LEASE_SECS,
+        "z_floor": {"value": _z_floor, "enabled": _z_floor_enabled,
+                    "default": DEFAULT_Z_FLOOR},
     })
 
 
@@ -431,6 +585,33 @@ def events():
     """Push the relay state (both arms' feedback, sides, leases) ~5x/s while it
     changes; the leases count down so it changes every sample."""
     return _live.stream(_state_dict, interval=0.2)
+
+
+@bp.route("/api/z-floor", methods=["GET", "POST"])
+def z_floor():
+    """Read or set the Cartesian Z soft floor (mm). GET is open; POST (set
+    value/enabled) is gamemaster-only and persisted."""
+    global _z_floor, _z_floor_enabled
+    if request.method == "GET":
+        with _z_lock:
+            return _ok(value=_z_floor, enabled=_z_floor_enabled, default=DEFAULT_Z_FLOOR,
+                       models={s: (_z_coef[s] is not None) for s in SIDES})
+    if not _is_operator_request():
+        return _fail("gamemaster required"), 403
+    data = request.json or {}
+    _log_incoming("z-floor", data)
+    with _z_lock:
+        if "value" in data:
+            try:
+                _z_floor = float(data["value"])
+            except (TypeError, ValueError):
+                return _fail("value must be a number")
+        if "enabled" in data:
+            _z_floor_enabled = bool(data["enabled"])
+        _save_z_floor()
+        out = {"value": _z_floor, "enabled": _z_floor_enabled}
+    _live.bump()
+    return _ok(**out)
 
 
 # ---- side helpers ----------------------------------------------------------
@@ -700,9 +881,12 @@ def move():
         except (ValueError, TypeError, IndexError):
             return _fail("joints must be numeric")
         j1, j2, j3, j4 = _clamp_joints(j1, j2, j3, j4)
+        j1, j2, j3, j4, znote = _apply_z_floor(side, j1, j2, j3, j4, robot)
         robot.set_target_joints(j1, j2, j3, j4)
         clamped = {"j1": round(j1, 2), "j2": round(j2, 2),
                    "j3": round(j3, 2), "j4": round(j4, 2)}
+        if znote:
+            clamped["z_floor"] = znote
         _log_command("robot", side, "set_target_joints", clamped, ok=True)
     else:
         p = data.get("pose")

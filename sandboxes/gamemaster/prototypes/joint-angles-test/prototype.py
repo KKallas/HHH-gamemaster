@@ -489,10 +489,16 @@ def move():
         return _fail("Expected numeric j1, j2, j3 (j4 optional)")
     j1, j2, j3, j4 = _clamp_joints(j1, j2, j3, j4)
     result = robot.set_target(j1, j2, j3, j4)
-    if isinstance(result, tuple) and result and result[0] is False:
-        return _fail(result[1] or "relay move failed")
-    return _ok(clamped={"j1": round(j1, 2), "j2": round(j2, 2),
-                        "j3": round(j3, 2), "j4": round(j4, 2)})
+    note = None
+    if isinstance(result, tuple) and result:
+        if result[0] is False:
+            return _fail(result[1] or "relay move failed")
+        note = result[1] if len(result) > 1 else None
+    clamped = {"j1": round(j1, 2), "j2": round(j2, 2),
+               "j3": round(j3, 2), "j4": round(j4, 2)}
+    # `z_floor` is set by the relay when a Z soft-floor clamp altered the target,
+    # so the UI can explain why the arm didn't follow the slider.
+    return _ok(clamped=clamped, **({"z_floor": note} if note else {}))
 
 
 # ---- saved locations: NUM_SLOTS fixed slots (edit / set / recall) ----------
