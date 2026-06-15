@@ -1,0 +1,207 @@
+{
+  "playfield": {
+    "areas": {
+      "top_left": {
+        "key": "top_left",
+        "label": "Top left",
+        "u": 0.25,
+        "v": 0.25,
+        "marker": 20,
+        "area_id": "a4"
+      },
+      "top_right": {
+        "key": "top_right",
+        "label": "Top right",
+        "u": 0.75,
+        "v": 0.25,
+        "marker": 21,
+        "area_id": "a5"
+      },
+      "bottom_right": {
+        "key": "bottom_right",
+        "label": "Bottom right",
+        "u": 0.75,
+        "v": 0.75,
+        "marker": 22,
+        "area_id": "a6"
+      },
+      "bottom_left": {
+        "key": "bottom_left",
+        "label": "Bottom left",
+        "u": 0.25,
+        "v": 0.75,
+        "marker": 23,
+        "area_id": "a7"
+      },
+      "center": {
+        "key": "center",
+        "label": "Center",
+        "u": 0.5,
+        "v": 0.5,
+        "marker": 24,
+        "area_id": "a8"
+      }
+    },
+    "corner_map": {
+      "top_left": 20,
+      "top_right": 21,
+      "bottom_right": 22,
+      "bottom_left": 23
+    },
+    "updated_at": 1781558143.8994088
+  },
+  "arms": {
+    "green": {
+      "points": {
+        "top_left": {
+          "key": "top_left",
+          "label": "Top left",
+          "u": 0.25,
+          "v": 0.25,
+          "marker": 20,
+          "pose": {
+            "set": true,
+            "x": 325.31,
+            "y": -32.398,
+            "z": -97.679,
+            "r": -238.51
+          }
+        },
+        "top_right": {
+          "key": "top_right",
+          "label": "Top right",
+          "u": 0.75,
+          "v": 0.25,
+          "marker": 21,
+          "pose": {
+            "set": true,
+            "x": 316.564,
+            "y": -211.566,
+            "z": -97.688,
+            "r": -244.641
+          }
+        },
+        "bottom_right": {
+          "key": "bottom_right",
+          "label": "Bottom right",
+          "u": 0.75,
+          "v": 0.75,
+          "marker": 22,
+          "pose": {
+            "set": true,
+            "x": 227.385,
+            "y": -207.897,
+            "z": -98.267,
+            "r": -272.765
+          }
+        },
+        "bottom_left": {
+          "key": "bottom_left",
+          "label": "Bottom left",
+          "u": 0.25,
+          "v": 0.75,
+          "marker": 23,
+          "pose": {
+            "set": true,
+            "x": 237.9,
+            "y": -26.94,
+            "z": -98.598,
+            "r": -260.44
+          }
+        }
+      },
+      "center": {
+        "set": true,
+        "x": 275.828,
+        "y": -118.006,
+        "z": -97.269,
+        "r": -263.17
+      },
+      "pickup_height": {
+        "set": true,
+        "z": -98.141
+      },
+      "transport_height": {
+        "set": true,
+        "z": -73.834
+      },
+      "updated_at": 1781554749.627787
+    },
+    "purple": {
+      "points": {
+        "top_left": {
+          "key": "top_left",
+          "label": "Top left",
+          "u": 0.25,
+          "v": 0.25,
+          "marker": 20,
+          "pose": {
+            "set": false,
+            "x": null,
+            "y": null,
+            "z": null,
+            "r": null
+          }
+        },
+        "top_right": {
+          "key": "top_right",
+          "label": "Top right",
+          "u": 0.75,
+          "v": 0.25,
+          "marker": 21,
+          "pose": {
+            "set": false,
+            "x": null,
+            "y": null,
+            "z": null,
+            "r": null
+          }
+        },
+        "bottom_right": {
+          "key": "bottom_right",
+          "label": "Bottom right",
+          "u": 0.75,
+          "v": 0.75,
+          "marker": 22,
+          "pose": {
+            "set": false,
+            "x": null,
+            "y": null,
+            "z": null,
+            "r": null
+          }
+        },
+        "bottom_left": {
+          "key": "bottom_left",
+          "label": "Bottom left",
+          "u": 0.25,
+          "v": 0.75,
+          "marker": 23,
+          "pose": {
+            "set": false,
+            "x": null,
+            "y": null,
+            "z": null,
+            "r": null
+          }
+        }
+      },
+      "center": {
+        "set": false,
+        "x": null,
+        "y": null,
+        "z": null,
+        "r": null
+      },
+      "pickup_height": {
+        "set": false,
+        "z": null
+      },
+      "transport_height": {
+        "set": false,
+        "z": null
+      },
+      "updated_at": null
+    }
+  }
+}

@@ -48,8 +48,21 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070b);
 scene.fog = new THREE.FogExp2(0x05070b, 0.02);
 
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 9, 13);
+const camera = new THREE.OrthographicCamera(-12, 12, 12, -12, 0.1, 200);
+camera.position.set(0, 18, 0);
+camera.rotation.x = -Math.PI / 2;
+camera.userData.orthoSize = 24;
+function setOrthoSize(size) {
+  const h = Math.max(10, Math.min(120, Number(size) || 24));
+  const w = h * (innerWidth / innerHeight);
+  camera.left = -w / 2;
+  camera.right = w / 2;
+  camera.top = h / 2;
+  camera.bottom = -h / 2;
+  camera.userData.orthoSize = h;
+  camera.updateProjectionMatrix();
+}
+setOrthoSize(24);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -343,7 +356,7 @@ function forwardFrom(rx, ry) {
 }
 
 function applyTransform(s) {
-  if (Math.abs(camera.fov - s.fov) > 0.01) { camera.fov = s.fov; camera.updateProjectionMatrix(); }
+  if (Math.abs((camera.userData.orthoSize || 24) - s.fov) > 0.01) setOrthoSize(s.fov);
   // Reproduce the transform through OrbitControls: place the pivot in front of
   // the camera along the requested look direction, keeping the current radius.
   const radius = Math.max(0.5, camera.position.distanceTo(orbit.target));
@@ -359,7 +372,7 @@ function applyTransform(s) {
 function applySettings(s) {
   bloom.strength = s.bloom;
   bokeh.materialBokeh.uniforms.aperture.value = s.dof * 0.001;
-  if (Math.abs(camera.fov - s.fov) > 0.01) { camera.fov = s.fov; camera.updateProjectionMatrix(); }
+  if (Math.abs((camera.userData.orthoSize || 24) - s.fov) > 0.01) setOrthoSize(s.fov);
   if (orbiting) { roll = s.rot.z * DEG; return; }  // don't fight an active drag
   // Adopt location/rotation only when they meaningfully differ (restores a saved
   // view, lets the controller drive the camera, ignores the echo of our saves).
@@ -397,7 +410,7 @@ async function saveCamera() {
   const body = {
     cam: { x: round(camera.position.x), y: round(camera.position.y), z: round(camera.position.z) },
     rot: { x: round(lastRx * RAD), y: round(lastRy * RAD), z: round(roll * RAD) },
-    fov: round(camera.fov),
+    fov: round(camera.userData.orthoSize || 24),
   };
   try {
     await fetch(U('/api/settings'), {
@@ -447,8 +460,7 @@ function animate() {
 animate();
 
 addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
+  setOrthoSize(camera.userData.orthoSize || 24);
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
 });

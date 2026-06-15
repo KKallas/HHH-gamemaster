@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Auto Pick and Place — Game Master</title>
+<link rel="stylesheet" href="/theme.css" />
+<style>
+  main { max-width: 1280px; margin: 0 auto; padding: 14px 20px 28px; }
+  .topbar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .topbar h1 { margin:0; font-size:18px; }
+  .topbar .sub { color:var(--muted); font-size:12px; }
+  .layout { display:grid; grid-template-columns: 1.3fr 1fr; gap:16px; align-items:start; }
+  @media (max-width: 920px) { .layout { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  .feedWrap { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:#030405; aspect-ratio:16 / 9; cursor:crosshair; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; transform-origin:center center; }
+  .feedWrap.rot180 #webcamFeed { transform:rotate(180deg); }
+  .calOverlay { position:absolute; inset:0; pointer-events:none; z-index:3; }
+  .calOverlay svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .calOverlay line.grid { stroke:rgba(79,157,255,.78); stroke-dasharray:5 4; }
+  .calOverlay line.spoke { stroke:rgba(255,255,255,.34); stroke-dasharray:3 5; }
+  .calOverlay .calPin { position:absolute; min-width:34px; height:22px; padding:0 7px; display:flex; align-items:center; justify-content:center; border:2px solid #fff; border-radius:999px; background:rgba(3,4,5,.78); color:#fff; font-size:11px; font-weight:900; line-height:1; transform:translate(-50%, -50%); box-shadow:0 0 0 2px rgba(0,0,0,.35); }
+  .calOverlay .calPin::after { content:""; position:absolute; left:50%; top:50%; width:6px; height:6px; border-radius:50%; background:#fff; transform:translate(-50%, -50%); }
+  .calOverlay .calPin span { position:relative; transform:translateY(-18px); padding:2px 5px; border-radius:4px; background:rgba(3,4,5,.82); }
+  .calOverlay .calPin.center { border-color:var(--accent); color:var(--accent); }
+  .calOverlay .calPin.corner { border-color:var(--ok); color:var(--ok); }
+  .calOverlay[hidden] { display:none; }
+  .moveZoneLayer { position:absolute; inset:0; pointer-events:none; z-index:4; }
+  .moveZoneBox { position:absolute; border:2px solid var(--warn); background:rgba(255,193,7,.07); box-shadow:0 0 0 9999px rgba(0,0,0,.18); }
+  .moveZoneBox::before { content:"Allowed arm zone"; position:absolute; left:6px; top:6px; padding:2px 6px; border-radius:4px; background:rgba(3,4,5,.82); color:var(--warn); font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
+  .zoneHandle { position:absolute; width:18px; height:18px; border:2px solid #2a1c00; border-radius:50%; background:var(--warn); pointer-events:auto; transform:translate(-50%, -50%); box-shadow:0 0 0 2px rgba(0,0,0,.35); }
+  .zoneHandle[data-handle="left"], .zoneHandle[data-handle="right"] { cursor:ew-resize; }
+  .zoneHandle[data-handle="top"], .zoneHandle[data-handle="bottom"] { cursor:ns-resize; }
+  .zoneHandle[data-handle="top_left"], .zoneHandle[data-handle="bottom_right"] { cursor:nwse-resize; }
+  .zoneHandle[data-handle="top_right"], .zoneHandle[data-handle="bottom_left"] { cursor:nesw-resize; }
+  .moveZoneLayer[hidden] { display:none; }
+  .clickDot { position:absolute; width:16px; height:16px; border:3px solid var(--accent); border-radius:50%; transform:translate(-50%, -50%); box-shadow:0 0 0 9999px rgba(79,157,255,.04); }
+  .clickDot[hidden] { display:none; }
+  .teams { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width: 560px) { .teams { grid-template-columns:1fr; } }
+  .team { border:1px solid var(--line); border-radius:10px; padding:14px; background:#13161c; border-top:4px solid var(--line); }
+  .team.green { border-top-color:#36e07c; }
+  .team.purple { border-top-color:#b86bff; }
+  .team .who { font-size:13px; font-weight:850; display:flex; gap:8px; align-items:center; }
+  .team .dot { width:10px; height:10px; border-radius:50%; }
+  .team.green .dot { background:#36e07c; } .team.purple .dot { background:#b86bff; }
+  .team .name { margin-top:4px; font-size:18px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .team .name.empty { color:var(--muted); font-weight:600; font-size:14px; }
+  .team .timer { margin:8px 0 12px; font-size:34px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .team .ph { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .team .ph.running { color:#36c46b; } .team .ph.done { color:var(--warn); } .team .ph.ready { color:var(--accent); }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt); padding:9px 14px; border-radius:6px; font:inherit; cursor:pointer; min-height:42px; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.finish { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:850; width:100%; }
+  button.reset { background:#2a1216; border-color:#5a2630; color:#ff8a96; width:100%; margin-top:8px; }
+  .bestCard { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .bestCard .k { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
+  .bestCard .v { margin-top:3px; font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  td.num { font-variant-numeric:tabular-nums; text-align:right; }
+  td.tg.green { color:#36e07c; } td.tg.purple { color:#b86bff; }
+  .results-wrap { max-height:300px; overflow:auto; }
+  .empty-row { color:var(--muted); font-size:13px; padding:10px 2px; }
+  a.dl { color:var(--accent); font-size:13px; text-decoration:none; }
+  a.dl:hover { text-decoration:underline; }
+  .hint { color:var(--muted); font-size:12px; }
+  .controlRow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .controlRow select { background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:9px 10px; border-radius:6px; font:inherit; min-height:42px; }
+  .controlRow .status { color:var(--muted); font-size:12px; flex:1; min-width:220px; }
+  button.pick { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:850; }
+  button.release { background:var(--warn); border-color:var(--warn); color:#2a1c00; font-weight:850; }
+  button.stop { background:#5a1017; border-color:#ff5a66; color:#ffdce0; font-weight:850; }
+  .cornerMap { display:grid; gap:10px; margin-bottom:12px; padding:10px; background:#13161c; border:1px solid var(--line); border-radius:8px; }
+  .cornerMap .head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .cornerMap .title { font-size:13px; font-weight:850; }
+  .cornerMap .note { color:var(--muted); font-size:12px; flex:1; min-width:180px; }
+  .cornerMap.warn { border-color:var(--warn); }
+  .cornerGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; }
+  .cornerChoice { display:grid; gap:4px; }
+  .cornerChoice label { color:var(--muted); font-size:10px; font-weight:850; text-transform:uppercase; letter-spacing:.04em; }
+  .cornerChoice select { background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:8px 9px; border-radius:6px; font:inherit; min-height:38px; }
+  .calRows { display:grid; gap:8px; }
+  .calRow { display:grid; grid-template-columns:92px minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px 10px; background:#13161c; border:1px solid var(--line); border-radius:8px; }
+  .calRow .label { font-weight:850; font-size:13px; }
+  .calRow .value { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .calRow.set .value { color:var(--ok); }
+  .calRow button { min-height:34px; padding:6px 10px; font-size:12px; }
+  .miniStats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-top:12px; }
+  .miniStat { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:9px 10px; }
+  .miniStat .k { color:var(--muted); font-size:10px; font-weight:850; text-transform:uppercase; letter-spacing:.04em; }
+  .miniStat .v { margin-top:3px; font-size:13px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>Auto Pick and Place</h1>
+    <span class="sub">Game Master · mark each team finished when its block lands on the mark</span>
+    <span style="flex:1"></span>
+    <a class="dl" href="api/log.csv" download>auto-pickup-log.csv</a>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="panel">
+        <h2>Live camera</h2>
+        <div class="feedWrap" id="feedWrap">
+          <img id="webcamFeed" alt="live game camera feed" />
+          <div id="calOverlay" class="calOverlay" hidden></div>
+          <div id="moveZoneLayer" class="moveZoneLayer" hidden></div>
+          <div id="clickDot" class="clickDot" hidden></div>
+        </div>
+        <div class="controlRow">
+          <select id="autoSide" aria-label="arm side">
+            <option value="purple">Purple arm</option>
+            <option value="green">Green arm</option>
+          </select>
+          <select id="controlLink" aria-label="arm connection">
+            <option value="relay">Via relay</option>
+            <option value="direct">Direct arm</option>
+          </select>
+          <select id="cameraView" aria-label="camera orientation">
+            <option value="normal">Camera normal</option>
+            <option value="rot180">Rotate video 180°</option>
+          </select>
+          <button id="btnRelayConnect" type="button">Connect relay</button>
+          <button id="btnClearError" type="button">Clear error</button>
+          <button id="btnStop" class="stop" type="button">Stop</button>
+          <button id="btnMoveTarget" type="button">Move to click</button>
+          <button id="btnPick" class="pick" type="button">Pick up</button>
+          <button id="btnRelease" class="release" type="button">Release tag</button>
+          <span id="autoStatus" class="status">Click a calibrated point on the camera view.</span>
+        </div>
+        <div class="miniStats">
+          <div class="miniStat"><div class="k">Relay</div><div class="v" id="relayStat">--</div></div>
+          <div class="miniStat"><div class="k">Current pose</div><div class="v" id="poseStat">--</div></div>
+          <div class="miniStat"><div class="k">Click target</div><div class="v" id="targetStat">--</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Players</h2>
+        <div class="teams">
+          <div class="team green" id="team-green">
+            <div class="who"><span class="dot"></span>Green</div>
+            <div class="name empty" id="name-green">no player</div>
+            <div class="timer" id="timer-green">--</div>
+            <div class="ph" id="ph-green">idle</div>
+            <button class="finish" id="finish-green" disabled>Mark Green finished</button>
+            <button class="reset" id="reset-green">Reset Green</button>
+          </div>
+          <div class="team purple" id="team-purple">
+            <div class="who"><span class="dot"></span>Purple</div>
+            <div class="name empty" id="name-purple">no player</div>
+            <div class="timer" id="timer-purple">--</div>
+            <div class="ph" id="ph-purple">idle</div>
+            <button class="finish" id="finish-purple" disabled>Mark Purple finished</button>
+            <button class="reset" id="reset-purple">Reset Purple</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="panel">
+        <h2>Robot calibration</h2>
+        <div id="cornerMap" class="cornerMap"></div>
+        <div id="calRows" class="calRows"></div>
+        <div class="controlRow">
+          <button id="btnSyncPlayfield" type="button">Show calibration tags on playfield</button>
+          <button id="btnResetMoveZone" type="button">Reset movement zone</button>
+          <button id="btnDownloadCal" type="button">Download calibration ZIP</button>
+          <button id="btnUploadCal" type="button">Upload calibration ZIP</button>
+          <input id="uploadCalFile" type="file" accept=".zip,application/zip" hidden />
+          <button id="btnResetCal" class="reset" type="button">Reset selected arm calibration</button>
+          <span class="hint">Open Playfield Areas screen. The five ArUco calibration tags are real playfield areas filmed by the webcam.</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Best time</h2>
+        <div class="bestCard"><div class="k">Fastest run</div><div class="v" id="bestTime">--</div></div>
+      </div>
+      <div class="panel">
+        <h2>Results <span id="resultCount" class="hint"></span></h2>
+        <div class="results-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Secs</th><th>When</th></tr></thead>
+            <tbody id="resultsBody"><tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const BASE = location.pathname.replace(/\/[^/]*$/, "/");
+const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
+const WEBCAM_TAGS = `${location.origin}/s/gamemaster/p/webcam/api/tags`;
+const RELAY = `${location.origin}/s/gamemaster/p/dobot-mg400-relay`;
+const AUTO_SIDE_KEY = "auto-pick-and-place-selected-side";
+const AUTO_LINK_KEY = "auto-pick-and-place-control-link";
+const AUTO_CAMERA_VIEW_KEY = "auto-pick-and-place-camera-view";
+const AUTO_MOVE_ZONE_KEY = "auto-pick-and-place-move-zone";
+const TEAMS = ["green", "purple"];
+const EXTRAPOLATION_MARGIN = 0.42;
+const SAFE_RADIUS_MIN = 230;
+const SAFE_RADIUS_MAX = 400;
+const CAL_POINTS = [
+  ["top_left", "Top left"],
+  ["top_right", "Top right"],
+  ["bottom_right", "Bottom right"],
+  ["bottom_left", "Bottom left"],
+];
+const CORNER_MARKERS = [20, 21, 22, 23];
+const CENTER_MARKER = 24;
+const el = id => document.getElementById(id);
+let state = null;
+let timerHandle = 0;
+let calibration = {};
+let relayState = null;
+let selectedSide = "purple";
+let controlLink = "relay";
+let cameraView = "normal";
+let selectedTarget = null;
+let relayToken = "";
+let relayTokenSide = "";
+let relayHeartbeat = 0;
+let automationBusy = false;
+let stopRequested = false;
+let sessionCameraMap = null;
+let movementZone = { sMin:0, sMax:1, tMin:0, tMax:1 };
+let latestCalibrationTags = null;
+let zoneDrag = null;
+let lastZoneDragEnd = 0;
+
+async function api(path, body) {
+  const opts = { method: body ? "POST" : "GET" };
+  if (body) { opts.headers = { "Content-Type": "application/json" }; opts.body = JSON.stringify(body); }
+  const res = await fetch(BASE + path.replace(/^\//, ""), opts);
+  const text = await res.text();
+  let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function relayApi(path, body) {
+  const opts = { method: body ? "POST" : "GET" };
+  if (body) { opts.headers = { "Content-Type": "application/json" }; opts.body = JSON.stringify(body); }
+  const res = await fetch(RELAY + path, opts);
+  const text = await res.text();
+  let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+  if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function directApi(path, body) {
+  return api(`/api/direct${path}`, body);
+}
+
+function fmtSecs(v) { return (v == null || !Number.isFinite(Number(v))) ? "--" : `${Number(v).toFixed(1)}s`; }
+function fmtNum(v) { return (v == null || !Number.isFinite(Number(v))) ? "--" : Number(v).toFixed(1); }
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  const d = typeof iso === "number" ? new Date(iso * 1000) : new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
+function startWebcam() { el("webcamFeed").src = `${WEBCAM}?t=${Date.now()}`; }
+function poseObj(pose) {
+  if (!Array.isArray(pose) || pose.length < 3) return null;
+  return { x:+pose[0], y:+pose[1], z:+pose[2], r:+(pose[3] || 0) };
+}
+function currentPose() {
+  return poseObj(relayState && relayState.arms && relayState.arms[selectedSide] && relayState.arms[selectedSide].pose);
+}
+function setAutoStatus(text) { el("autoStatus").textContent = text; }
+function armCal() { return (calibration.arms && calibration.arms[selectedSide]) || {}; }
+function playfieldCal() { return calibration.playfield || {}; }
+function cornerLabel(key) {
+  const found = CAL_POINTS.find(([k]) => k === key);
+  return found ? found[1] : key.replaceAll("_", " ");
+}
+function defaultCornerMap() {
+  const out = {};
+  CAL_POINTS.forEach(([key], i) => { out[key] = CORNER_MARKERS[i]; });
+  return out;
+}
+function cornerMap() {
+  const saved = playfieldCal().corner_map || {};
+  const out = defaultCornerMap();
+  for (const [key] of CAL_POINTS) {
+    const marker = Number(saved[key]);
+    if (CORNER_MARKERS.includes(marker)) out[key] = marker;
+  }
+  return out;
+}
+function markerForCorner(key) {
+  if (key === "center") return CENTER_MARKER;
+  return cornerMap()[key];
+}
+function clearSelectedTarget() {
+  selectedTarget = null;
+  sessionCameraMap = null;
+  el("clickDot").hidden = true;
+  el("targetStat").textContent = "--";
+}
+function setBusy(on) {
+  automationBusy = on;
+  for (const id of ["btnRelayConnect", "btnClearError", "btnMoveTarget", "btnPick", "btnRelease"]) el(id).disabled = on;
+}
+
+async function loadCalibration() {
+  const data = await api("/api/calibration");
+  calibration = data.calibration || {};
+  chooseInitialSide();
+  chooseInitialLink();
+  chooseInitialCameraView();
+  loadMovementZone();
+  renderCalibration();
+}
+
+function armHasCorners(side) {
+  const cal = (calibration.arms && calibration.arms[side]) || {};
+  const pts = cal.points || {};
+  return CAL_POINTS.every(([key]) => pts[key] && pts[key].pose && pts[key].pose.set);
+}
+
+function chooseInitialSide() {
+  const sel = el("autoSide");
+  const saved = localStorage.getItem(AUTO_SIDE_KEY);
+  if (saved === "green" || saved === "purple") selectedSide = saved;
+  else if (armHasCorners("green") && !armHasCorners("purple")) selectedSide = "green";
+  else selectedSide = sel.value || selectedSide;
+  sel.value = selectedSide;
+}
+
+function chooseInitialLink() {
+  const saved = localStorage.getItem(AUTO_LINK_KEY);
+  controlLink = saved === "direct" ? "direct" : "relay";
+  el("controlLink").value = controlLink;
+  el("btnRelayConnect").textContent = controlLink === "direct" ? "Connect direct" : "Connect relay";
+}
+
+function isCameraRotated() { return cameraView === "rot180"; }
+
+function applyCameraView() {
+  el("feedWrap").classList.toggle("rot180", isCameraRotated());
+  el("cameraView").value = cameraView;
+}
+
+function chooseInitialCameraView() {
+  const saved = localStorage.getItem(AUTO_CAMERA_VIEW_KEY);
+  cameraView = saved === "rot180" ? "rot180" : "normal";
+  applyCameraView();
+}
+
+function displayTag(tag) {
+  const nx = Number(tag.nx);
+  const ny = Number(tag.ny);
+  return isCameraRotated()
+    ? { ...tag, nx:1 - nx, ny:1 - ny }
+    : { ...tag, nx, ny };
+}
+
+function clampZoneValue(v) {
+  const lo = -EXTRAPOLATION_MARGIN;
+  const hi = 1 + EXTRAPOLATION_MARGIN;
+  return Math.max(lo, Math.min(hi, Number(v)));
+}
+
+function cleanMovementZone(value) {
+  const fallback = { sMin:0, sMax:1, tMin:0, tMax:1 };
+  if (!value || typeof value !== "object") return fallback;
+  let sMin = clampZoneValue(value.sMin);
+  let sMax = clampZoneValue(value.sMax);
+  let tMin = clampZoneValue(value.tMin);
+  let tMax = clampZoneValue(value.tMax);
+  if (![sMin, sMax, tMin, tMax].every(Number.isFinite)) return fallback;
+  if (sMax - sMin < 0.05) { sMin = 0; sMax = 1; }
+  if (tMax - tMin < 0.05) { tMin = 0; tMax = 1; }
+  return { sMin, sMax, tMin, tMax };
+}
+
+function loadMovementZone() {
+  try { movementZone = cleanMovementZone(JSON.parse(localStorage.getItem(AUTO_MOVE_ZONE_KEY) || "null")); }
+  catch (_) { movementZone = cleanMovementZone(null); }
+}
+
+function saveMovementZone() {
+  localStorage.setItem(AUTO_MOVE_ZONE_KEY, JSON.stringify(movementZone));
+}
+
+function resetMovementZone() {
+  movementZone = { sMin:0, sMax:1, tMin:0, tMax:1 };
+  saveMovementZone();
+  clearSelectedTarget();
+  if (latestCalibrationTags) renderMovementZone(latestCalibrationTags);
+  setAutoStatus("Movement zone reset to the calibrated tag area.");
+}
+
+async function downloadCalibrationZip() {
+  const res = await fetch(BASE + "api/calibration/export.zip", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ active_area:movementZone }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "auto-pick-calibration.zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setAutoStatus("Calibration ZIP downloaded.");
+}
+
+async function uploadCalibrationZip(file) {
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(BASE + "api/calibration/import.zip", { method:"POST", body:form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+  calibration = data.calibration || calibration;
+  if (data.active_area) {
+    movementZone = cleanMovementZone(data.active_area);
+    saveMovementZone();
+  }
+  clearSelectedTarget();
+  renderCalibration();
+  refreshCalibrationOverlay();
+  setAutoStatus("Calibration ZIP uploaded.");
+}
+
+async function syncPlayfieldTags() {
+  try {
+    const data = await api("/api/calibration/playfield", {});
+    calibration = data.calibration || calibration;
+    clearSelectedTarget();
+    renderCalibration();
+    setAutoStatus("Calibration tags are on the Playfield Areas screen. Camera map will recapture on the next move.");
+  } catch (e) {
+    setAutoStatus(`Playfield tag sync failed: ${e.message}`);
+  }
+}
+
+async function fetchRelayState() {
+  try {
+    relayState = controlLink === "direct"
+      ? await directApi("/state")
+      : await relayApi("/api/state");
+    renderRelay();
+  } catch (e) {
+    el("relayStat").textContent = controlLink === "direct" ? "direct unavailable" : "relay unavailable";
+  }
+}
+
+function stopTimerTick() { clearInterval(timerHandle); timerHandle = 0; }
+function startTimerTick() {
+  stopTimerTick();
+  const tick = () => {
+    if (!state) return;
+    for (const t of TEAMS) {
+      const ts = state.teams[t];
+      if (ts.phase === "running" && ts.started_at)
+        el(`timer-${t}`).textContent = `${Math.max(0, (Date.now() / 1000) - Number(ts.started_at)).toFixed(1)}s`;
+    }
+  };
+  tick();
+  timerHandle = setInterval(tick, 100);
+}
+
+function applyState(s) {
+  state = s || {};
+  let anyRunning = false;
+  for (const t of TEAMS) {
+    const ts = (state.teams && state.teams[t]) || {};
+    const phase = ts.phase || "idle";
+    el(`name-${t}`).textContent = ts.player || "no player";
+    el(`name-${t}`).classList.toggle("empty", !ts.player);
+    el(`ph-${t}`).textContent = phase;
+    el(`ph-${t}`).className = "ph " + phase;
+    el(`finish-${t}`).disabled = phase !== "running";
+    if (phase === "running") { anyRunning = true; }
+    else el(`timer-${t}`).textContent = phase === "done" ? fmtSecs(ts.elapsed_seconds) : "--";
+  }
+  const b = state.best_seconds;
+  el("bestTime").textContent = b != null
+    ? `${fmtSecs(b)}${state.best_player ? " · " + state.best_player : ""}${state.best_team ? " (" + state.best_team + ")" : ""}` : "--";
+  if (anyRunning) startTimerTick(); else stopTimerTick();
+}
+
+function duplicateCornerMarkers(map) {
+  const counts = new Map();
+  for (const [key] of CAL_POINTS) counts.set(map[key], (counts.get(map[key]) || 0) + 1);
+  return new Set([...counts].filter(([, count]) => count > 1).map(([marker]) => marker));
+}
+
+function renderCornerMap() {
+  const map = cornerMap();
+  const duplicates = duplicateCornerMarkers(map);
+  const choices = CAL_POINTS.map(([key, label]) => {
+    const options = CORNER_MARKERS.map(marker =>
+      `<option value="${marker}"${map[key] === marker ? " selected" : ""}>Tag ${marker}</option>`
+    ).join("");
+    return `<div class="cornerChoice">
+      <label for="corner-${key}">${label}</label>
+      <select id="corner-${key}" data-corner="${key}">${options}</select>
+    </div>`;
+  }).join("");
+  el("cornerMap").classList.toggle("warn", duplicates.size > 0);
+  el("cornerMap").innerHTML = `<div class="head">
+    <div class="title">Robot-view corner tags</div>
+    <div class="note">${duplicates.size ? "Each corner needs a different tag number." : "Confirm which displayed tag number is each robot-view corner."}</div>
+    <button type="button" id="btnConfirmCornerMap">Confirm</button>
+  </div>
+  <div class="cornerGrid">${choices}</div>`;
+  for (const sel of el("cornerMap").querySelectorAll("select[data-corner]")) {
+    sel.onchange = () => {
+      clearSelectedTarget();
+      setAutoStatus("Confirm the robot-view corner tags before the next move.");
+    };
+  }
+  el("btnConfirmCornerMap").onclick = saveCornerMap;
+}
+
+function readCornerMapControls() {
+  const out = {};
+  for (const [key] of CAL_POINTS) out[key] = Number(el(`corner-${key}`).value);
+  return out;
+}
+
+async function saveCornerMap() {
+  try {
+    const next = readCornerMapControls();
+    const data = await api("/api/calibration/corner-map", { corner_map: next });
+    calibration = data.calibration || calibration;
+    clearSelectedTarget();
+    renderCalibration();
+    setAutoStatus("Robot-view corner tags confirmed. Camera map will recapture on the next move.");
+  } catch (e) {
+    setAutoStatus(`Corner tag confirmation failed: ${e.message}`);
+  }
+}
+
+function renderCalibration() {
+  const cal = armCal();
+  const pf = playfieldCal();
+  const rows = [];
+  renderCornerMap();
+  const areas = pf.areas || {};
+  const areaValues = Object.values(areas);
+  const areaCount = areaValues.filter(a => a && a.area_id).length;
+  const areaTotal = areaValues.length || 5;
+  rows.push(`<div class="calRow ${(areaTotal > 0 && areaCount === areaTotal) ? "set" : ""}">
+    <div class="label">Playfield tags</div>
+    <div class="value">${areaCount}/${areaTotal} real ArUco areas on Playfield Areas screen</div>
+    <button type="button" id="inlineSyncPlayfield">Sync</button>
+  </div>`);
+  const points = cal.points || {};
+  for (const [key, label] of CAL_POINTS) {
+    const pose = points[key] && points[key].pose;
+    rows.push(calRow(key, label, pose && pose.set, `Tag ${markerForCorner(key)} · ${poseText(pose)}`));
+  }
+  rows.push(calRow("center", "Center", cal.center && cal.center.set, `Tag ${CENTER_MARKER} · ${poseText(cal.center)}`));
+  rows.push(calRow("pickup_height", "Pickup Z", cal.pickup_height && cal.pickup_height.set,
+    cal.pickup_height && cal.pickup_height.set ? `Z ${fmtNum(cal.pickup_height.z)} mm` : "not set"));
+  rows.push(calRow("transport_height", "Transport Z", cal.transport_height && cal.transport_height.set,
+    cal.transport_height && cal.transport_height.set ? `Z ${fmtNum(cal.transport_height.z)} mm` : "not set"));
+  el("calRows").innerHTML = rows.join("");
+  const sync = document.getElementById("inlineSyncPlayfield");
+  if (sync) sync.onclick = syncPlayfieldTags;
+  for (const btn of el("calRows").querySelectorAll("button[data-capture]")) {
+    btn.onclick = () => captureCalibration(btn.dataset.capture);
+  }
+}
+
+function calRow(key, label, set, value) {
+  return `<div class="calRow ${set ? "set" : ""}">
+    <div class="label">${label}</div>
+    <div class="value">${value}</div>
+    <button type="button" data-capture="${key}">Capture</button>
+  </div>`;
+}
+
+function poseText(pose) {
+  if (!pose || !pose.set) return "not set";
+  return `X ${fmtNum(pose.x)} · Y ${fmtNum(pose.y)} · Z ${fmtNum(pose.z)} · R ${fmtNum(pose.r)}`;
+}
+
+async function captureCalibration(target) {
+  const pose = currentPose();
+  if (!pose) { setAutoStatus("No live relay pose for selected arm."); return; }
+  try {
+    const data = await api("/api/calibration/capture", { side:selectedSide, target, pose });
+    calibration = data.calibration || calibration;
+    clearSelectedTarget();
+    renderCalibration();
+    setAutoStatus(`Captured ${target.replaceAll("_", " ")} for ${selectedSide}.`);
+  } catch (e) {
+    setAutoStatus(`Capture failed: ${e.message}`);
+  }
+}
+
+function renderRelay() {
+  const arm = relayState && relayState.arms && relayState.arms[selectedSide];
+  if (!arm) return;
+  const bits = [
+    controlLink,
+    arm.connected ? "connected" : "not connected",
+    arm.enabled ? "enabled" : "disabled",
+    `pump ${arm.pump_mode || "off"}`,
+  ];
+  if (arm.error) bits.push("ERROR");
+  if (arm.servo_error) bits.push("follower error");
+  el("relayStat").textContent = bits.join(" · ");
+  const pose = poseObj(arm.pose);
+  el("poseStat").textContent = pose ? `X ${fmtNum(pose.x)} · Y ${fmtNum(pose.y)} · Z ${fmtNum(pose.z)} · R ${fmtNum(pose.r)}` : "--";
+}
+
+function imageFrameRect() {
+  const wrap = el("feedWrap").getBoundingClientRect();
+  const r = el("webcamFeed").getBoundingClientRect();
+  const img = el("webcamFeed");
+  const naturalRatio = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : r.width / r.height;
+  const boxRatio = r.width / r.height;
+  let left = r.left, top = r.top, width = r.width, height = r.height;
+  if (boxRatio > naturalRatio) {
+    width = height * naturalRatio;
+    left += (r.width - width) / 2;
+  } else {
+    height = width / naturalRatio;
+    top += (r.height - height) / 2;
+  }
+  return { left, top, width, height, wrapLeft:wrap.left, wrapTop:wrap.top, wrapWidth:wrap.width, wrapHeight:wrap.height };
+}
+
+function feedPointFromCamera(u, v) {
+  const frame = imageFrameRect();
+  return {
+    x: ((frame.left + Number(u) * frame.width - frame.wrapLeft) / frame.wrapWidth) * 100,
+    y: ((frame.top + Number(v) * frame.height - frame.wrapTop) / frame.wrapHeight) * 100,
+  };
+}
+
+function normalizedClick(ev) {
+  const frame = imageFrameRect();
+  const u = (ev.clientX - frame.left) / frame.width;
+  const v = (ev.clientY - frame.top) / frame.height;
+  if (u < 0 || u > 1 || v < 0 || v > 1) throw new Error("click inside the camera image");
+  return {
+    u: Math.max(0, Math.min(1, u)),
+    v: Math.max(0, Math.min(1, v)),
+  };
+}
+
+function baseSafePose(pose) {
+  const out = { ...pose };
+  const radius = Math.hypot(out.x, out.y);
+  let limited = "";
+  if (radius === 0) {
+    out.x = SAFE_RADIUS_MIN;
+    out.y = 0;
+    limited = "base-safe";
+  } else if (radius < SAFE_RADIUS_MIN) {
+    const scale = SAFE_RADIUS_MIN / radius;
+    out.x *= scale;
+    out.y *= scale;
+    limited = "base-safe";
+  } else if (radius > SAFE_RADIUS_MAX) {
+    const scale = SAFE_RADIUS_MAX / radius;
+    out.x *= scale;
+    out.y *= scale;
+    limited = "reach-safe";
+  }
+  return { pose: out, limited };
+}
+
+function avg2(a, b, key) {
+  return (Number(a[key]) + Number(b[key])) / 2;
+}
+
+function tagPoint(tag) {
+  return { u:Number(tag.nx), v:Number(tag.ny) };
+}
+
+function dist2(a, b) {
+  const du = a.u - b.u;
+  const dv = a.v - b.v;
+  return du * du + dv * dv;
+}
+
+function calibrationTagEntries(cam) {
+  return [
+    ["top_left", markerForCorner("top_left"), tagPoint(cam.top_left)],
+    ["top_right", markerForCorner("top_right"), tagPoint(cam.top_right)],
+    ["bottom_right", markerForCorner("bottom_right"), tagPoint(cam.bottom_right)],
+    ["bottom_left", markerForCorner("bottom_left"), tagPoint(cam.bottom_left)],
+    ["center", CENTER_MARKER, tagPoint(cam.center)],
+  ];
+}
+
+function alignClickToCamera(u, v, cam) {
+  let best = null;
+  const point = { u, v };
+  for (const [key, marker, tag] of calibrationTagEntries(cam)) {
+    const score = dist2(point, tag);
+    if (!best || score < best.score) best = { key, marker, tag, score };
+  }
+  const snapRadius = 0.085;
+  if (best && best.score <= snapRadius * snapRadius) {
+    return { u:best.tag.u, v:best.tag.v, snapped:true, snapKey:best.key, snapMarker:best.marker };
+  }
+  return { u, v, snapped:false, snapKey:"", snapMarker:null };
+}
+
+function linearSolveCameraST(u, v, tl, tr, br, bl) {
+  const leftU = avg2(tl, bl, "nx");
+  const rightU = avg2(tr, br, "nx");
+  const topV = avg2(tl, tr, "ny");
+  const bottomV = avg2(bl, br, "ny");
+  const spanU = rightU - leftU;
+  const spanV = bottomV - topV;
+  if (Math.abs(spanU) < 0.0001 || Math.abs(spanV) < 0.0001) {
+    throw new Error("calibration tags are too close together in the camera view");
+  }
+  const s = (u - leftU) / spanU;
+  const t = (v - topV) / spanV;
+  const lo = -EXTRAPOLATION_MARGIN;
+  const hi = 1 + EXTRAPOLATION_MARGIN;
+  return {
+    rawS: s,
+    rawT: t,
+    s: Math.max(lo, Math.min(hi, s)),
+    t: Math.max(lo, Math.min(hi, t)),
+    leftU,
+    topV,
+    spanU,
+    spanV,
+  };
+}
+
+function cameraPointFromST(cam, s, t) {
+  const solved = linearSolveCameraST(0, 0, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
+  return {
+    u: solved.leftU + solved.spanU * s,
+    v: solved.topV + solved.spanV * t,
+  };
+}
+
+function linearAxis(value, inputMin, inputMax, outputMin, outputMax) {
+  const inputSpan = inputMax - inputMin;
+  if (Math.abs(inputSpan) < 0.0001) throw new Error("camera calibration span is too small");
+  const multiplier = (outputMax - outputMin) / inputSpan;
+  const offset = outputMin - multiplier * inputMin;
+  return offset + multiplier * value;
+}
+
+function linearAxisThroughCenter(value, inputMin, inputCenter, inputMax, outputMin, outputCenter, outputMax) {
+  if (!Number.isFinite(inputCenter) || Math.abs(inputCenter - inputMin) < 0.0001 || Math.abs(inputMax - inputCenter) < 0.0001) {
+    return linearAxis(value, inputMin, inputMax, outputMin, outputMax);
+  }
+  if (value <= inputCenter) return linearAxis(value, inputMin, inputCenter, outputMin, outputCenter);
+  return linearAxis(value, inputCenter, inputMax, outputCenter, outputMax);
+}
+
+async function visibleCalibrationTags() {
+  const res = await fetch(WEBCAM_TAGS);
+  if (!res.ok) throw new Error(`camera tag read failed: HTTP ${res.status}`);
+  const data = await res.json();
+  const seen = new Map();
+  for (const tag of [...(data.detections || []), ...(data.tags || [])]) {
+    const id = Number(tag.id);
+    if (!Number.isFinite(id)) continue;
+    if (Number.isFinite(Number(tag.nx)) && Number.isFinite(Number(tag.ny))) {
+      const rec = { id, nx:Number(tag.nx), ny:Number(tag.ny), missing:Number(tag.missing || 0) };
+      const prev = seen.get(id);
+      if (!prev || rec.missing < prev.missing) seen.set(id, rec);
+    }
+  }
+  const out = {};
+  for (const key of ["top_left", "top_right", "bottom_right", "bottom_left", "center"]) {
+    const marker = markerForCorner(key);
+    const tag = seen.get(marker);
+    if (tag && tag.missing <= 1.0) out[key] = displayTag(tag);
+  }
+  return out;
+}
+
+async function detectedCalibrationTags() {
+  const tags = await visibleCalibrationTags();
+  const out = {};
+  for (const key of ["top_left", "top_right", "bottom_right", "bottom_left", "center"]) {
+    const marker = markerForCorner(key);
+    const tag = tags[key];
+    if (!tag) throw new Error(`camera cannot see calibration tag ${marker} (${cornerLabel(key)})`);
+    out[key] = tag;
+  }
+  return out;
+}
+
+function overlayShortLabel(key) {
+  return ({ top_left:"TL", top_right:"TR", bottom_right:"BR", bottom_left:"BL", center:"C" })[key] || key;
+}
+
+function svgLine(a, b, cls = "") {
+  return `<line class="${cls}" x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}" />`;
+}
+
+function midpoint(a, b) {
+  return { x:(a.x + b.x) / 2, y:(a.y + b.y) / 2 };
+}
+
+function renderCalibrationOverlay(tags) {
+  latestCalibrationTags = tags;
+  const overlay = el("calOverlay");
+  const entries = ["top_left", "top_right", "bottom_right", "bottom_left", "center"]
+    .filter(key => tags[key])
+    .map(key => ({ key, marker:markerForCorner(key), point:feedPointFromCamera(tags[key].nx, tags[key].ny) }));
+  if (!entries.length) {
+    overlay.hidden = true;
+    overlay.innerHTML = "";
+    renderMovementZone({});
+    return;
+  }
+  const byKey = Object.fromEntries(entries.map(entry => [entry.key, entry.point]));
+  const lines = [];
+  if (byKey.top_left && byKey.top_right && byKey.bottom_right && byKey.bottom_left) {
+    const points = [byKey.top_left, byKey.top_right, byKey.bottom_right, byKey.bottom_left, byKey.top_left]
+      .map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
+    lines.push(`<polyline points="${points}" />`);
+    lines.push(svgLine(midpoint(byKey.top_left, byKey.top_right), midpoint(byKey.bottom_left, byKey.bottom_right), "grid"));
+    lines.push(svgLine(midpoint(byKey.top_left, byKey.bottom_left), midpoint(byKey.top_right, byKey.bottom_right), "grid"));
+  }
+  if (byKey.center) {
+    if (byKey.top_left) lines.push(svgLine(byKey.center, byKey.top_left, "spoke"));
+    if (byKey.top_right) lines.push(svgLine(byKey.center, byKey.top_right, "spoke"));
+    if (byKey.bottom_right) lines.push(svgLine(byKey.center, byKey.bottom_right, "spoke"));
+    if (byKey.bottom_left) lines.push(svgLine(byKey.center, byKey.bottom_left, "spoke"));
+  }
+  const pins = entries.map(({ key, marker, point }) =>
+    `<div class="calPin ${key === "center" ? "center" : "corner"}" style="left:${point.x.toFixed(2)}%;top:${point.y.toFixed(2)}%"><span>${overlayShortLabel(key)} ${marker}</span></div>`
+  ).join("");
+  overlay.hidden = false;
+  overlay.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+    <g fill="none" stroke="rgba(79,157,255,.92)" stroke-width=".45" vector-effect="non-scaling-stroke">${lines.join("")}</g>
+  </svg>${pins}`;
+  renderMovementZone(tags);
+}
+
+function renderMovementZone(tags) {
+  const layer = el("moveZoneLayer");
+  const hasCorners = tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left;
+  if (!hasCorners) {
+    layer.hidden = true;
+    layer.innerHTML = "";
+    return;
+  }
+  const z = movementZone;
+  const zoneTl = cameraPointFromST(tags, z.sMin, z.tMin);
+  const zoneBr = cameraPointFromST(tags, z.sMax, z.tMax);
+  const tl = feedPointFromCamera(zoneTl.u, zoneTl.v);
+  const br = feedPointFromCamera(zoneBr.u, zoneBr.v);
+  const left = Math.min(tl.x, br.x);
+  const top = Math.min(tl.y, br.y);
+  const right = Math.max(tl.x, br.x);
+  const bottom = Math.max(tl.y, br.y);
+  const cx = (left + right) / 2;
+  const cy = (top + bottom) / 2;
+  const handles = [
+    ["top_left", left, top], ["top", cx, top], ["top_right", right, top],
+    ["right", right, cy], ["bottom_right", right, bottom], ["bottom", cx, bottom],
+    ["bottom_left", left, bottom], ["left", left, cy],
+  ].map(([name, x, y]) => `<div class="zoneHandle" data-handle="${name}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%"></div>`).join("");
+  layer.hidden = false;
+  layer.innerHTML = `<div class="moveZoneBox" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${(right-left).toFixed(2)}%;height:${(bottom-top).toFixed(2)}%"></div>${handles}`;
+  for (const h of layer.querySelectorAll(".zoneHandle")) {
+    h.onpointerdown = ev => startZoneDrag(ev, h.dataset.handle);
+  }
+}
+
+function startZoneDrag(ev, handle) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  zoneDrag = { handle };
+  ev.currentTarget.setPointerCapture?.(ev.pointerId);
+}
+
+function updateZoneFromPointer(ev) {
+  if (!zoneDrag || !latestCalibrationTags) return;
+  const frame = imageFrameRect();
+  const u = Math.max(0, Math.min(1, (ev.clientX - frame.left) / frame.width));
+  const v = Math.max(0, Math.min(1, (ev.clientY - frame.top) / frame.height));
+  const solved = linearSolveCameraST(u, v, latestCalibrationTags.top_left, latestCalibrationTags.top_right, latestCalibrationTags.bottom_right, latestCalibrationTags.bottom_left);
+  const minGap = 0.05;
+  const next = { ...movementZone };
+  if (zoneDrag.handle.includes("left")) next.sMin = Math.min(clampZoneValue(solved.rawS), next.sMax - minGap);
+  if (zoneDrag.handle.includes("right")) next.sMax = Math.max(clampZoneValue(solved.rawS), next.sMin + minGap);
+  if (zoneDrag.handle.includes("top")) next.tMin = Math.min(clampZoneValue(solved.rawT), next.tMax - minGap);
+  if (zoneDrag.handle.includes("bottom")) next.tMax = Math.max(clampZoneValue(solved.rawT), next.tMin + minGap);
+  movementZone = cleanMovementZone(next);
+  renderMovementZone(latestCalibrationTags);
+}
+
+function stopZoneDrag() {
+  if (!zoneDrag) return;
+  zoneDrag = null;
+  lastZoneDragEnd = Date.now();
+  saveMovementZone();
+  clearSelectedTarget();
+  setAutoStatus("Movement zone updated. Clicks outside the box will be blocked.");
+}
+
+async function refreshCalibrationOverlay() {
+  try {
+    renderCalibrationOverlay(await visibleCalibrationTags());
+  } catch (_) {
+    renderCalibrationOverlay({});
+  }
+}
+
+async function sessionCalibrationTags() {
+  if (sessionCameraMap) return sessionCameraMap;
+  setAutoStatus("Reading calibration tags once for simple offset/multiplier mapping...");
+  const tags = await detectedCalibrationTags();
+  renderCalibrationOverlay(tags);
+  sessionCameraMap = {
+    top_left: tags.top_left,
+    top_right: tags.top_right,
+    bottom_right: tags.bottom_right,
+    bottom_left: tags.bottom_left,
+    center: tags.center,
+    captured_at: Date.now(),
+  };
+  setAutoStatus("Simple offset/multiplier camera calibration captured for this session.");
+  return sessionCameraMap;
+}
+
+async function clickToPose(u, v) {
+  const cal = armCal();
+  const pts = cal.points || {};
+  const tl = pts.top_left && pts.top_left.pose;
+  const tr = pts.top_right && pts.top_right.pose;
+  const br = pts.bottom_right && pts.bottom_right.pose;
+  const bl = pts.bottom_left && pts.bottom_left.pose;
+  if (![tl, tr, br, bl].every(p => p && p.set)) throw new Error("capture all four corner tags first");
+  const center = cal.center && cal.center.set ? cal.center : null;
+  if (!center) throw new Error("capture center tag first");
+  const cam = await sessionCalibrationTags();
+  const aligned = alignClickToCamera(u, v, cam);
+  const solved = linearSolveCameraST(aligned.u, aligned.v, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
+  if (
+    solved.rawS < movementZone.sMin || solved.rawS > movementZone.sMax ||
+    solved.rawT < movementZone.tMin || solved.rawT > movementZone.tMax
+  ) {
+    throw new Error("Target is outside the allowed movement zone.");
+  }
+  const s = solved.s;
+  const t = solved.t;
+  const safeU = solved.leftU + solved.spanU * s;
+  const safeV = solved.topV + solved.spanV * t;
+  const robotTopX = avg2(tl, tr, "x");
+  const robotBottomX = avg2(bl, br, "x");
+  const robotLeftY = avg2(tl, bl, "y");
+  const robotRightY = avg2(tr, br, "y");
+  const camLeftU = solved.leftU;
+  const camRightU = solved.leftU + solved.spanU;
+  const camTopV = solved.topV;
+  const camBottomV = solved.topV + solved.spanV;
+  const z = cal.transport_height && cal.transport_height.set
+    ? cal.transport_height.z
+    : center.z;
+  const r = center.r;
+  const guarded = baseSafePose({
+    x: linearAxisThroughCenter(safeV, camTopV, cam.center.ny, camBottomV, robotTopX, center.x, robotBottomX),
+    y: linearAxisThroughCenter(safeU, camLeftU, cam.center.nx, camRightU, robotLeftY, center.y, robotRightY),
+    z,
+    r,
+  });
+  return {
+    u, v,
+    cameraU: aligned.u,
+    cameraV: aligned.v,
+    s, t,
+    rawS: solved.rawS,
+    rawT: solved.rawT,
+    bounded: Math.abs(s - solved.rawS) > 0.0001 || Math.abs(t - solved.rawT) > 0.0001,
+    snapped: aligned.snapped,
+    snapKey: aligned.snapKey,
+    snapMarker: aligned.snapMarker,
+    safetyLimited: guarded.limited,
+    pose: guarded.pose,
+  };
+}
+
+function setSelectedTarget(target) {
+  selectedTarget = target;
+  const dot = el("clickDot");
+  const point = feedPointFromCamera(target.u, target.v);
+  dot.hidden = false;
+  dot.style.left = `${point.x}%`;
+  dot.style.top = `${point.y}%`;
+  const p = target.pose;
+  const flags = [];
+  if (target.bounded) flags.push("edge-limited");
+  if (target.snapped) flags.push(`tag ${target.snapMarker}`);
+  if (target.safetyLimited) flags.push(target.safetyLimited);
+  el("targetStat").textContent = `X ${fmtNum(p.x)} · Y ${fmtNum(p.y)} · Z ${fmtNum(p.z)} · R ${fmtNum(p.r)}${flags.length ? " · " + flags.join(" · ") : ""}`;
+}
+
+async function ensureRelayLease() {
+  if (controlLink === "direct") {
+    await ensureRelayConnected();
+    return "";
+  }
+  await ensureRelayConnected();
+  if (relayToken && relayTokenSide === selectedSide) return relayToken;
+  const data = await relayApi("/api/acquire", { side:selectedSide, mode:"cartesian" });
+  relayToken = data.token;
+  relayTokenSide = selectedSide;
+  clearInterval(relayHeartbeat);
+  relayHeartbeat = setInterval(() => {
+    if (!relayToken) return;
+    relayApi("/api/heartbeat", { side:relayTokenSide, token:relayToken }).catch(() => { relayToken = ""; });
+  }, 750);
+  return relayToken;
+}
+
+async function ensureRelayConnected() {
+  try {
+    if (controlLink === "direct") {
+      await fetchRelayState();
+      let arm = relayState && relayState.arms && relayState.arms[selectedSide];
+      if (!arm || !arm.connected) {
+        setAutoStatus(`Connecting ${selectedSide} arm directly...`);
+        await directApi("/connect", { side:selectedSide });
+        await fetchRelayState();
+        arm = relayState && relayState.arms && relayState.arms[selectedSide];
+      }
+      if (!arm || !arm.enabled) {
+        setAutoStatus(`Enabling ${selectedSide} arm directly...`);
+        await directApi("/enable", { side:selectedSide });
+        await fetchRelayState();
+      }
+      setAutoStatus(`${selectedSide} direct arm is connected and enabled.`);
+      return;
+    }
+    await fetchRelayState();
+    let arm = relayState && relayState.arms && relayState.arms[selectedSide];
+    if (!arm || !arm.connected) {
+      setAutoStatus(`Connecting ${selectedSide} arm through relay...`);
+      await relayApi("/api/connect", { side:selectedSide });
+      relayToken = "";
+      relayTokenSide = "";
+      await fetchRelayState();
+      arm = relayState && relayState.arms && relayState.arms[selectedSide];
+    }
+    if (!arm || !arm.enabled) {
+      setAutoStatus(`Enabling ${selectedSide} arm through relay...`);
+      await relayApi("/api/enable", { side:selectedSide });
+      relayToken = "";
+      relayTokenSide = "";
+      await fetchRelayState();
+    }
+    setAutoStatus(`${selectedSide} relay is connected and enabled.`);
+  } catch (e) {
+    throw new Error(`${selectedSide} relay connection failed: ${e.message}`);
+  }
+}
+
+async function clearRelayError() {
+  setAutoStatus(`Clearing ${selectedSide} arm error...`);
+  relayToken = "";
+  relayTokenSide = "";
+  if (controlLink === "direct") await directApi("/clear_error", { side:selectedSide });
+  else await relayApi("/api/clear_error", { side:selectedSide });
+  await fetchRelayState();
+  setAutoStatus(`${selectedSide} arm error clear command sent.`);
+}
+
+async function relayMove(pose) {
+  if (controlLink === "direct") {
+    await ensureRelayConnected();
+    const data = await directApi("/move", {
+      side:selectedSide,
+      pose:[pose.x, pose.y, pose.z, pose.r],
+    });
+    await fetchRelayState();
+    return data;
+  }
+  const token = await ensureRelayLease();
+  let data;
+  try {
+    data = await relayApi("/api/move", {
+      side:selectedSide,
+      token,
+      mode:"cartesian",
+      pose:[pose.x, pose.y, pose.z, pose.r],
+    });
+  } catch (e) {
+    if (!/stale token/i.test(e.message)) throw e;
+    relayToken = "";
+    const fresh = await ensureRelayLease();
+    data = await relayApi("/api/move", {
+      side:selectedSide,
+      token:fresh,
+      mode:"cartesian",
+      pose:[pose.x, pose.y, pose.z, pose.r],
+    });
+  }
+  await fetchRelayState();
+  return data;
+}
+
+async function relayPump(mode) {
+  if (controlLink === "direct") {
+    await ensureRelayConnected();
+    const data = await directApi("/pump", { side:selectedSide, mode });
+    await fetchRelayState();
+    return data;
+  }
+  const token = await ensureRelayLease();
+  const data = await relayApi("/api/pump", { side:selectedSide, token, mode });
+  await fetchRelayState();
+  return data;
+}
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function checkStopped() {
+  if (stopRequested) throw new Error("Stopped by operator.");
+}
+
+async function stopArm() {
+  stopRequested = true;
+  relayToken = "";
+  relayTokenSide = "";
+  if (controlLink === "direct") await directApi("/stop", { side:selectedSide });
+  else await relayApi("/api/kick", { side:selectedSide });
+  await fetchRelayState();
+  setAutoStatus(`${selectedSide} arm stop command sent.`);
+}
+
+async function waitNear(pose, timeoutMs = 18000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    checkStopped();
+    await fetchRelayState();
+    const cur = currentPose();
+    if (cur && Math.hypot(cur.x - pose.x, cur.y - pose.y, cur.z - pose.z) <= 8) return true;
+    await sleep(180);
+  }
+  return false;
+}
+
+function heightPose(z) {
+  if (!selectedTarget) throw new Error("click a target first");
+  return { ...selectedTarget.pose, z };
+}
+
+async function moveSelectedTarget() {
+  checkStopped();
+  if (!selectedTarget) throw new Error("click a target first");
+  const p = selectedTarget.pose;
+  setAutoStatus(`Sending ${selectedSide} arm to X ${fmtNum(p.x)} · Y ${fmtNum(p.y)} · Z ${fmtNum(p.z)}.`);
+  const res = await relayMove(p);
+  const clamped = res && res.clamped;
+  setAutoStatus(clamped
+    ? `${selectedSide} target accepted: X ${fmtNum(clamped.x)} · Y ${fmtNum(clamped.y)} · Z ${fmtNum(clamped.z)}.`
+    : `${selectedSide} target accepted.`);
+}
+
+async function pickUp() {
+  checkStopped();
+  const cal = armCal();
+  if (!cal.pickup_height || !cal.pickup_height.set) throw new Error("capture pickup height first");
+  if (!cal.transport_height || !cal.transport_height.set) throw new Error("capture transport height first");
+  const high = heightPose(cal.transport_height.z);
+  const low = heightPose(cal.pickup_height.z);
+  await relayMove(high);
+  checkStopped();
+  await waitNear(high);
+  await relayMove(low);
+  checkStopped();
+  await waitNear(low);
+  await relayPump("suck");
+  checkStopped();
+  await sleep(450);
+  await relayMove(high);
+  setAutoStatus(`Pickup sequence sent for ${selectedSide}.`);
+}
+
+async function releaseTag() {
+  checkStopped();
+  const cal = armCal();
+  if (!cal.pickup_height || !cal.pickup_height.set) throw new Error("capture pickup height first");
+  if (!cal.transport_height || !cal.transport_height.set) throw new Error("capture transport height first");
+  const high = heightPose(cal.transport_height.z);
+  const low = heightPose(cal.pickup_height.z);
+  await relayMove(high);
+  checkStopped();
+  await waitNear(high);
+  await relayMove(low);
+  checkStopped();
+  await waitNear(low);
+  await relayPump("off");
+  checkStopped();
+  await sleep(150);
+  await relayPump("blow");
+  checkStopped();
+  await sleep(550);
+  await relayPump("off");
+  checkStopped();
+  await sleep(150);
+  await relayMove(high);
+  setAutoStatus(`Release sequence sent for ${selectedSide}.`);
+}
+
+async function runAutomation(fn) {
+  if (automationBusy) return;
+  stopRequested = false;
+  setBusy(true);
+  try {
+    await fn();
+  } catch (e) {
+    setAutoStatus(e.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function refreshResults() {
+  try {
+    const data = await api("/api/results");
+    const rows = data.results || [];
+    el("resultCount").textContent = data.count ? `(${data.count} total)` : "";
+    if (!rows.length) { el("resultsBody").innerHTML = `<tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr>`; return; }
+    const best = data.best && data.best.seconds;
+    el("resultsBody").innerHTML = rows.map((r, i) => {
+      const isBest = best != null && Number(r.elapsed_seconds) === Number(best);
+      return `<tr${isBest ? ' style="color:var(--ok);font-weight:800"' : ''}>
+        <td>${data.count - i}</td>
+        <td>${escapeHtml(r.player || "—")}${isBest ? " ★" : ""}</td>
+        <td class="tg ${r.team === 'green' || r.team === 'purple' ? r.team : ''}">${escapeHtml(r.team || "—")}</td>
+        <td class="num">${Number(r.elapsed_seconds).toFixed(1)}</td>
+        <td>${fmtWhen(r.logged_at)}</td></tr>`;
+    }).join("");
+  } catch (_) {}
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+function wire() {
+  const saved = localStorage.getItem(AUTO_SIDE_KEY);
+  if (saved === "green" || saved === "purple") {
+    el("autoSide").value = saved;
+    selectedSide = saved;
+  } else {
+    selectedSide = el("autoSide").value || selectedSide;
+  }
+  chooseInitialLink();
+  chooseInitialCameraView();
+  loadMovementZone();
+  for (const t of TEAMS) {
+    el(`finish-${t}`).onclick = async () => { try { applyState(await api("/api/finish", { team: t })); refreshResults(); } catch (e) { alert(e.message); } };
+    el(`reset-${t}`).onclick = async () => { try { applyState(await api("/api/reset", { team: t })); } catch (e) { alert(e.message); } };
+  }
+  el("autoSide").onchange = () => {
+    selectedSide = el("autoSide").value;
+    localStorage.setItem(AUTO_SIDE_KEY, selectedSide);
+    relayToken = "";
+    relayTokenSide = "";
+    clearSelectedTarget();
+    renderCalibration();
+    renderRelay();
+    setAutoStatus(`Selected ${selectedSide} arm.`);
+  };
+  el("controlLink").onchange = () => {
+    controlLink = el("controlLink").value === "direct" ? "direct" : "relay";
+    localStorage.setItem(AUTO_LINK_KEY, controlLink);
+    relayToken = "";
+    relayTokenSide = "";
+    stopRequested = false;
+    el("btnRelayConnect").textContent = controlLink === "direct" ? "Connect direct" : "Connect relay";
+    fetchRelayState();
+    setAutoStatus(controlLink === "direct"
+      ? "Using direct arm connection."
+      : "Using relay arm connection.");
+  };
+  el("cameraView").onchange = () => {
+    cameraView = el("cameraView").value === "rot180" ? "rot180" : "normal";
+    localStorage.setItem(AUTO_CAMERA_VIEW_KEY, cameraView);
+    applyCameraView();
+    clearSelectedTarget();
+    refreshCalibrationOverlay();
+    setAutoStatus(isCameraRotated()
+      ? "Video rotated 180 degrees. Calibration uses displayed robot-arm orientation."
+      : "Video normal. Calibration uses displayed robot-arm orientation.");
+  };
+  el("feedWrap").onclick = ev => runAutomation(async () => {
+    if (Date.now() - lastZoneDragEnd < 160) return;
+    const pt = normalizedClick(ev);
+    const target = await clickToPose(pt.u, pt.v);
+    setSelectedTarget(target);
+    await moveSelectedTarget();
+  });
+  document.addEventListener("pointermove", updateZoneFromPointer);
+  document.addEventListener("pointerup", stopZoneDrag);
+  document.addEventListener("pointercancel", stopZoneDrag);
+  el("btnRelayConnect").onclick = () => runAutomation(ensureRelayConnected);
+  el("btnClearError").onclick = () => runAutomation(clearRelayError);
+  el("btnStop").onclick = async () => {
+    try { await stopArm(); }
+    catch (e) { setAutoStatus(`Stop failed: ${e.message}`); }
+  };
+  el("btnMoveTarget").onclick = () => runAutomation(moveSelectedTarget);
+  el("btnPick").onclick = () => runAutomation(pickUp);
+  el("btnRelease").onclick = () => runAutomation(releaseTag);
+  el("btnSyncPlayfield").onclick = syncPlayfieldTags;
+  el("btnResetMoveZone").onclick = resetMovementZone;
+  el("btnDownloadCal").onclick = async () => {
+    try { await downloadCalibrationZip(); }
+    catch (e) { setAutoStatus(`Download failed: ${e.message}`); }
+  };
+  el("btnUploadCal").onclick = () => el("uploadCalFile").click();
+  el("uploadCalFile").onchange = async () => {
+    const file = el("uploadCalFile").files && el("uploadCalFile").files[0];
+    try { await uploadCalibrationZip(file); }
+    catch (e) { setAutoStatus(`Upload failed: ${e.message}`); }
+    finally { el("uploadCalFile").value = ""; }
+  };
+  el("btnResetCal").onclick = async () => {
+    if (!confirm(`Reset ${selectedSide} calibration?`)) return;
+    const data = await api("/api/calibration/reset", { side:selectedSide });
+    calibration = data.calibration || calibration;
+    clearSelectedTarget();
+    renderCalibration();
+    setAutoStatus(`Reset ${selectedSide} calibration.`);
+  };
+}
+
+async function init() {
+  wire();
+  startWebcam();
+  el("webcamFeed").onerror = () => setTimeout(startWebcam, 1000);
+  el("webcamFeed").onload = refreshCalibrationOverlay;
+  try { applyState(await api("/api/state")); } catch (_) {}
+  try { await loadCalibration(); } catch (_) {}
+  await fetchRelayState();
+  setInterval(fetchRelayState, 700);
+  refreshCalibrationOverlay();
+  setInterval(refreshCalibrationOverlay, 900);
+  refreshResults();
+  const es = new EventSource(BASE + "api/events");
+  es.onmessage = e => {
+    try {
+      const s = JSON.parse(e.data);
+      const before = TEAMS.map(t => state && state.teams[t] && state.teams[t].phase).join();
+      applyState(s);
+      const after = TEAMS.map(t => s.teams[t] && s.teams[t].phase).join();
+      if (before !== after) refreshResults();
+    } catch (_) {}
+  };
+}
+init();
+</script>
+</body>
+</html>

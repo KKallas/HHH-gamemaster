@@ -257,6 +257,18 @@ def _save_settings():
 _settings = _load_settings()
 
 
+def set_view_settings(**fields):
+    """Programmatic settings update for sibling prototypes."""
+    global _srev
+    with _lock:
+        _coerce_settings(_settings, fields)
+        _srev += 1
+        _save_settings()
+        out = json.loads(json.dumps(_settings))
+    _live.bump()
+    return out
+
+
 # ---- pages -----------------------------------------------------------------
 @bp.route("/")
 def index():
@@ -416,17 +428,12 @@ def get_settings():
 
 @bp.route("/api/settings", methods=["PATCH", "PUT"])
 def set_settings():
-    global _srev
     data = request.json or {}
-    with _lock:
-        try:
-            _coerce_settings(_settings, data)
-        except (ValueError, TypeError):
-            return jsonify({"ok": False, "error": "bad settings value"}), 400
-        _srev += 1
-        _save_settings()
-    _live.bump()
-    return jsonify({"ok": True, "settings": _settings, "srev": _srev})
+    try:
+        settings = set_view_settings(**data)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "bad settings value"}), 400
+    return jsonify({"ok": True, "settings": settings, "srev": _srev})
 
 
 def _seed():
@@ -462,6 +469,12 @@ def _save_areas():
             json.dump(data, f, indent=2)
     except OSError:
         pass
+
+
+def save_areas_now():
+    """Programmatic flush for sibling prototypes that need immediate persistence."""
+    _dirty.clear()
+    _save_areas()
 
 
 def _load_areas():

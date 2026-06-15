@@ -1,0 +1,44 @@
+{
+  "port": 8000,
+  "secret": "092fc5ef05210c37409c9937a24f21641bdaadb9514213b6475f127efcbcc51d",
+  "sandboxes": {
+    "gamemaster": {
+      "label": "Gamemaster Referee / Operator",
+      "accent": "#b6ff3a",
+      "admin": true,
+      "shared_api": {
+        "dobot-mg400-relay": [
+          "green",
+          "purple"
+        ],
+        "tag-game": [
+          "green",
+          "purple"
+        ],
+        "2p-tag-game": [
+          "green",
+          "purple"
+        ],
+        "pickup-game": [
+          "green",
+          "purple"
+        ],
+        "webcam": [
+          "green",
+          "purple"
+        ]
+      },
+      "password": "2d555ed8"
+    },
+    "green": {
+      "label": "Green Team",
+      "accent": "#36e07c",
+      "password": "f9dff575"
+    },
+    "purple": {
+      "label": "Purple Team",
+      "accent": "#b86bff",
+      "password": "013ee747"
+    }
+  }
+}

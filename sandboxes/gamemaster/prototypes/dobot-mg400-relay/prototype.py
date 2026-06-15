@@ -518,6 +518,7 @@ def _arm_dict(side):
     return {
         "connected": raw["connected"],
         "enabled": raw["enabled"],
+        "error": raw["error"],
         "mode_name": raw["mode_name"],
         "joints": raw["joints"],
         "pose": raw["pose"],
