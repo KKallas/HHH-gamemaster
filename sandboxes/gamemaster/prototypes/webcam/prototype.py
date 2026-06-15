@@ -258,7 +258,6 @@ class CameraManager:
         self._fps = 0.0            # measured capture fps (EMA)
         self._last_ts = 0.0
         self._error = None         # last open/read error, for the UI
-        self._rotate = False       # rotate every frame 180° (display + detection)
         self._last_detections = {}
         self._last_detections_at = 0.0
         self._no_signal = _placeholder("No camera selected")
@@ -354,15 +353,11 @@ class CameraManager:
                 self._error = None
 
     def set_rotate(self, on):
-        with self._lock:
-            self._rotate = bool(on)
-        _save_settings(rotate=self._rotate)
+        return None
 
     def _process_frame(self, frame):
         """Detect ArUco markers, update the debounced tracker, and draw an
         overlay (green = tracked, amber = still qualifying)."""
-        if self._rotate:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
         now = time.monotonic()
         dets = _detect(frame)
         _tracker.update(dets, now)
@@ -409,7 +404,7 @@ class CameraManager:
                 "requested_height": self._req_h,
                 "fps": round(self._fps, 1),
                 "error": self._error,
-                "rotate180": self._rotate,
+                "rotate180": False,
                 "backend": "AVFoundation" if sys.platform == "darwin"
                 else ("DirectShow" if sys.platform.startswith("win") else "default"),
             }
@@ -511,9 +506,8 @@ def _load_settings():
         return None
 
 
-def _save_settings(index=None, width=None, height=None, rotate=None):
-    """Merge the given fields into camera-settings.json (so e.g. toggling rotate
-    doesn't forget the remembered camera, and vice versa)."""
+def _save_settings(index=None, width=None, height=None):
+    """Merge the given fields into camera-settings.json."""
     cur = {}
     try:
         with open(SETTINGS_PATH) as f:
@@ -526,24 +520,11 @@ def _save_settings(index=None, width=None, height=None, rotate=None):
         cur["width"] = width
     if height:
         cur["height"] = height
-    if rotate is not None:
-        cur["rotate180"] = bool(rotate)
     try:
         with open(SETTINGS_PATH, "w") as f:
             json.dump(cur, f)
     except OSError:
         pass
-
-
-def _load_rotate():
-    try:
-        with open(SETTINGS_PATH) as f:
-            return bool(json.load(f).get("rotate180", False))
-    except (OSError, ValueError, TypeError):
-        return False
-
-
-_mgr._rotate = _load_rotate()   # restore the remembered rotation
 
 
 # ---- pages -----------------------------------------------------------------
@@ -633,10 +614,9 @@ def api_select():
 
 @bp.route("/api/rotate", methods=["POST"])
 def api_rotate():
-    """Toggle 180° rotation of the feed (display + detection). Persisted."""
-    on = bool((request.get_json(silent=True) or {}).get("on"))
-    _mgr.set_rotate(on)
-    return jsonify({"ok": True, "rotate180": on})
+    """Deprecated: source frames stay unrotated so tag tracking remains stable."""
+    _mgr.set_rotate(False)
+    return jsonify({"ok": True, "rotate180": False})
 
 
 @bp.route("/api/stop", methods=["POST"])

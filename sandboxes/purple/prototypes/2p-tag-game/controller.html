@@ -434,6 +434,14 @@ function startWebcamStream() {
   el('webcamFeed').src = `${WEBCAM}?t=${Date.now()}`;
 }
 
+function applyPlayerWebcamRotation(state = game) {
+  const byTeam = state && state.player_webcam_rotate180_by_team;
+  const rotate = byTeam && typeof byTeam === 'object'
+    ? !!byTeam[TEAM]
+    : !!(state && state.player_webcam_rotate180);
+  el('webcamFeed').style.transform = rotate ? 'rotate(180deg)' : '';
+}
+
 function showMissionText() {
   missionTextShown = true;
   renderMissionText();
@@ -800,6 +808,7 @@ function updateDistance(state) {
 function applyGameState(state) {
   const priorPhase = game && game.phase;
   game = state || {};
+  applyPlayerWebcamRotation(game);
   const active = teamIsActive(game);
   const phase = game.phase || 'setup';
   const ownResult = ownRoundResult(game);

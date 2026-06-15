@@ -56,6 +56,8 @@ _state = {
     "target_pose": None,
     "distance_mm": None,
     "pickup_state": "Waiting",
+    "player_webcam_rotate180": False,
+    "player_webcam_rotate180_by_team": {"purple": False, "green": False},
     "round_result": None,
     "countdown_started_at": None,
     "game_started_at": None,
@@ -125,7 +127,8 @@ def _patch_state(data):
             return _public_state_locked()
         for key in (
             "phase", "active_team", "tag_id", "active_radius_mm",
-            "distance_mm", "pickup_state", "countdown_started_at", "game_started_at",
+            "distance_mm", "pickup_state", "player_webcam_rotate180",
+            "player_webcam_rotate180_by_team", "countdown_started_at", "game_started_at",
         ):
             if key in data:
                 _state[key] = data[key]

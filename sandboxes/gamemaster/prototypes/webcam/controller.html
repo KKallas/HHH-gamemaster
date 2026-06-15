@@ -80,9 +80,6 @@
     </div>
     <div class="row" style="margin-top:10px;">
       <select id="resSel" title="Capture resolution"></select>
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--muted); font-size:13px;">
-        <input type="checkbox" id="rotate" style="accent-color:var(--accent)"> Rotate 180°
-      </label>
     </div>
     <p class="note">Choose the camera and capture resolution. The camera reports the
       closest mode it supports — the <b>Resolution</b> stat below shows what you
@@ -184,13 +181,6 @@ el('stop').onclick = async () => {
   startStream();
 };
 el('feed').onerror = () => setTimeout(startStream, 1000);
-el('rotate').onchange = async () => {
-  try {
-    await fetch(U('/api/rotate'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on: el('rotate').checked }) });
-  } catch (_) {}
-};
-
 function showAlert(msg) { const a = el('alert'); a.textContent = msg; a.style.display = 'block'; }
 function hideAlert() { el('alert').style.display = 'none'; }
 
@@ -208,7 +198,6 @@ function applyStatus(s) {
   else if (s.open) { pill.className = 'pill run'; txt.textContent = 'streaming'; }
   else { pill.className = 'pill idle'; txt.textContent = 'no camera'; }
 
-  if (el('rotate') !== document.activeElement) el('rotate').checked = !!s.rotate180;
   el('res').textContent = s.width ? `${s.width}×${s.height}` : '—';
   el('fps').textContent = s.open ? (s.fps || 0).toFixed(0) : '—';
   el('idx').textContent = (s.index != null) ? s.index : '—';

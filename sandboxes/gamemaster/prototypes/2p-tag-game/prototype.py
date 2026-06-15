@@ -53,6 +53,8 @@ _state = {
     "players": {"purple": "", "green": ""},
     "ready": {"purple": False, "green": False},
     "teams": {"purple": _team_state(42), "green": _team_state(43)},
+    "player_webcam_rotate180": False,
+    "player_webcam_rotate180_by_team": {"purple": False, "green": False},
     "round_result": None,
     "countdown_started_at": None,
     "game_started_at": None,
@@ -127,7 +129,10 @@ def _patch_state(data):
         if current_phase in ("countdown", "running") and requested_phase == "setup" and not explicit_reset:
             return _public_state_locked()
 
-        for key in ("phase", "countdown_started_at", "game_started_at"):
+        for key in (
+            "phase", "player_webcam_rotate180", "player_webcam_rotate180_by_team",
+            "countdown_started_at", "game_started_at",
+        ):
             if key in data:
                 _state[key] = data[key]
         _state["mode"] = "two_player"

@@ -213,6 +213,25 @@
     gap:10px;
   }
   .field { display:grid; gap:6px; }
+  .viewToggle {
+    display:flex;
+    gap:8px;
+    align-items:center;
+    min-height:44px;
+    color:rgba(244,247,251,.72);
+    font-size:13px;
+    font-weight:650;
+  }
+  .viewToggle input {
+    width:auto;
+    min-height:0;
+    accent-color:var(--pickup);
+  }
+  .viewToggleGrid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
   label {
     color:rgba(244,247,251,.72);
     font-size:13px;
@@ -416,6 +435,16 @@
     <div class="eyebrow">Gamemaster position - 2P Tag Game</div>
     <div id="gameStatePill">Setup</div>
   </div>
+  <div class="viewToggleGrid" aria-label="player webcam rotation">
+    <label class="viewToggle" for="purplePlayerWebcamRotateInput">
+      <input id="purplePlayerWebcamRotateInput" type="checkbox" />
+      Purple: Rotate player webcam view 180°
+    </label>
+    <label class="viewToggle" for="greenPlayerWebcamRotateInput">
+      <input id="greenPlayerWebcamRotateInput" type="checkbox" />
+      Green: Rotate player webcam view 180°
+    </label>
+  </div>
 
   <div class="teamGrid">
     <section class="teamPanel purple" data-team="purple" aria-label="purple team configurator">
@@ -569,6 +598,10 @@ const setupStatus = el('setupStatus');
 const highScoreRows = el('highScoreRows');
 const highScoreEmpty = el('highScoreEmpty');
 const resetHighScoresButton = el('resetHighScoresButton');
+const playerWebcamRotateInputs = {
+  purple: el('purplePlayerWebcamRotateInput'),
+  green: el('greenPlayerWebcamRotateInput'),
+};
 
 let startedAt = 0;
 let finishedAt = 0;
@@ -592,6 +625,7 @@ let playerNameEditing = { purple: false, green: false };
 
 const config = loadConfig();
 let teams = config.teams;
+let playerWebcamRotate180ByTeam = config.playerWebcamRotate180ByTeam;
 let statsByPlayer = config.statsByPlayer;
 let selectedTags = { purple: null, green: null };
 let selectedTagSeenAt = { purple: 0, green: 0 };
@@ -620,6 +654,7 @@ function defaultTeamConfig(team) {
 function defaultConfig() {
   return {
     teams: { purple: defaultTeamConfig('purple'), green: defaultTeamConfig('green') },
+    playerWebcamRotate180ByTeam: { purple: false, green: false },
     statsByPlayer: {},
   };
 }
@@ -639,6 +674,10 @@ function loadConfig() {
       };
     }
     base.statsByPlayer = normalizeStatsMap(raw.statsByPlayer);
+    base.playerWebcamRotate180ByTeam = normalizePlayerWebcamRotation(
+      raw.playerWebcamRotate180ByTeam,
+      !!raw.playerWebcamRotate180
+    );
     return base;
   } catch (_) {
     return defaultConfig();
@@ -651,6 +690,7 @@ function saveConfig() {
       purple: storeTeamConfig('purple'),
       green: storeTeamConfig('green'),
     },
+    playerWebcamRotate180ByTeam,
     statsByPlayer,
   }));
 }
@@ -669,6 +709,14 @@ function clampInt(value, min, max, fallback) {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
+}
+
+function normalizePlayerWebcamRotation(value, fallback = false) {
+  const raw = value && typeof value === 'object' ? value : {};
+  return {
+    purple: raw.purple !== undefined ? !!raw.purple : !!fallback,
+    green: raw.green !== undefined ? !!raw.green : !!fallback,
+  };
 }
 
 function cleanPlayerName(value) {
@@ -795,6 +843,8 @@ function operatorStatePayload(extra = {}) {
       purple: teamOperatorPayload('purple'),
       green: teamOperatorPayload('green'),
     },
+    player_webcam_rotate180: false,
+    player_webcam_rotate180_by_team: playerWebcamRotate180ByTeam,
     round_result: roundResultPayload(),
     ...extra,
   };
@@ -1849,6 +1899,17 @@ async function init() {
   connectPlayfieldEvents();
   connectGameStateEvents();
   connectRelayEvents();
+  for (const team of TEAMS) {
+    playerWebcamRotateInputs[team].checked = !!playerWebcamRotate180ByTeam[team];
+    playerWebcamRotateInputs[team].addEventListener('change', () => {
+      playerWebcamRotate180ByTeam = {
+        ...playerWebcamRotate180ByTeam,
+        [team]: playerWebcamRotateInputs[team].checked,
+      };
+      saveConfig();
+      publishOperatorState({}, true);
+    });
+  }
   for (const team of TEAMS) initTeamInputs(team);
   for (const button of document.querySelectorAll('.showTarget')) {
     button.addEventListener('click', () => showCalibrationTarget(button.dataset.team));

@@ -50,6 +50,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -57,7 +58,7 @@ import traceback
 import zipfile
 from urllib.parse import quote
 
-from flask import Flask, jsonify, redirect, request, send_file, send_from_directory
+from flask import Flask, has_request_context, jsonify, redirect, request, send_file, send_from_directory
 from itsdangerous import BadSignature, URLSafeSerializer
 from werkzeug.serving import make_server
 
@@ -86,6 +87,25 @@ DEFAULT_SANDBOXES = {
     "green": {"label": "Green Team", "accent": "#36e07c"},
     "purple": {"label": "Purple Team", "accent": "#b86bff"},
 }
+
+
+def _local_network_ip():
+    """Best-effort LAN address for the startup banner and non-request fallback."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except OSError:
+        pass
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except OSError:
+        pass
+    return "localhost"
 
 
 def load_config(path):
@@ -149,8 +169,10 @@ class HubContext:
 
     @property
     def local_base(self):
-        """This hub server's own base URL, e.g. "http://127.0.0.1:8000"."""
-        return f"http://127.0.0.1:{self._sandbox.hub.port}"
+        """This hub server's own base URL, matching the browser's host when possible."""
+        if has_request_context():
+            return request.host_url.rstrip("/")
+        return self._sandbox.hub.local_base
 
     # -- same-sandbox machine lookups ------------------------------------------
     def is_enabled(self):
@@ -520,6 +542,8 @@ class Hub:
         self.config_path = config_path or os.path.join(self.root_dir, "hub-config.json")
         self.config = load_config(self.config_path)
         self.port = self.config.get("port", 8000)
+        self.lan_ip = _local_network_ip()
+        self.local_base = f"http://{self.lan_ip}:{self.port}"
         self._server = None
 
         self._signer = URLSafeSerializer(self.config["secret"], salt="hhh-auth")
@@ -629,6 +653,7 @@ class Hub:
     def run(self, host="0.0.0.0", port=None):
         if port is not None:
             self.port = port
+            self.local_base = f"http://{self.lan_ip}:{self.port}"
         # Shared engine helpers (e.g. live.py) importable by plain name from
         # machine modules, without the machine knowing where the engine lives.
         if HUB_DIR not in sys.path:
@@ -636,10 +661,11 @@ class Hub:
         print("Discovering machines:")
         for sb in self.sandboxes.values():
             sb.discover()
-        print(f"\nHub: http://localhost:{self.port}")
+        print(f"\nHub local:   http://localhost:{self.port}")
+        print(f"Hub network: {self.local_base}")
         for name, cfg in self.config["sandboxes"].items():
             label = cfg.get("label", name)
-            print(f"  {label:<14} http://localhost:{self.port}/s/{name}/   "
+            print(f"  {label:<14} {self.local_base}/s/{name}/   "
                   f"password: {cfg.get('password')}")
         print(f"(passwords are editable in {os.path.relpath(self.config_path, os.getcwd())})",
               flush=True)

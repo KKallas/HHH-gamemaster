@@ -250,6 +250,25 @@
     display: grid;
     gap: 6px;
   }
+  .viewToggle {
+    display:flex;
+    gap:8px;
+    align-items:center;
+    min-height:44px;
+    color:rgba(244,247,251,.72);
+    font-size:13px;
+    font-weight:650;
+  }
+  .viewToggle input {
+    width:auto;
+    min-height:0;
+    accent-color:var(--pickup);
+  }
+  .viewToggleGrid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
   label {
     color: rgba(244, 247, 251, 0.72);
     font-size: 13px;
@@ -526,6 +545,16 @@
           </div>
         </div>
       </div>
+      <div class="viewToggleGrid" aria-label="player webcam rotation">
+        <label class="viewToggle" for="purplePlayerWebcamRotateInput">
+          <input id="purplePlayerWebcamRotateInput" type="checkbox" />
+          Purple: Rotate player webcam view 180°
+        </label>
+        <label class="viewToggle" for="greenPlayerWebcamRotateInput">
+          <input id="greenPlayerWebcamRotateInput" type="checkbox" />
+          Green: Rotate player webcam view 180°
+        </label>
+      </div>
     </section>
     <section class="gmColumn" aria-label="calibration">
       <h2>Calibration</h2>
@@ -630,6 +659,10 @@ const playerNameInput = document.getElementById('playerNameInput');
 const tagInput = document.getElementById('tagInput');
 const radiusRange = document.getElementById('radiusRange');
 const radiusInput = document.getElementById('radiusInput');
+const playerWebcamRotateInputs = {
+  purple: document.getElementById('purplePlayerWebcamRotateInput'),
+  green: document.getElementById('greenPlayerWebcamRotateInput'),
+};
 const showCalibrationTargetButton = document.getElementById('showCalibrationTargetButton');
 const confirmDepositButton = document.getElementById('confirmDepositButton');
 const relayStatusEl = document.getElementById('relayStatus');
@@ -695,6 +728,7 @@ let invertX = config.invertX;
 let invertY = config.invertY;
 let activeTeam = config.activeTeam;
 let playerName = config.playerName;
+let playerWebcamRotate180ByTeam = config.playerWebcamRotate180ByTeam;
 let statsByPlayer = config.statsByPlayer;
 let depositCenterPose = config.depositCenterPose;
 let depositOverlayCalibration = config.depositOverlayCalibration;
@@ -717,6 +751,10 @@ function loadConfig() {
       invertY: !!cfg.invertY,
       activeTeam: normalizeTeam(cfg.activeTeam || cfg.team || 'purple'),
       playerName: cleanPlayerName(cfg.playerName),
+      playerWebcamRotate180ByTeam: normalizePlayerWebcamRotation(
+        cfg.playerWebcamRotate180ByTeam,
+        !!cfg.playerWebcamRotate180
+      ),
       statsByPlayer: normalizeStatsMap(cfg.statsByPlayer),
       depositCenterPose: poseFromStorage(cfg.depositCenterPose),
       depositOverlayCalibration: overlayCalibrationFromStorage(cfg.depositOverlayCalibration),
@@ -734,6 +772,7 @@ function defaultConfig() {
     invertY: false,
     activeTeam: 'purple',
     playerName: '',
+    playerWebcamRotate180ByTeam: { purple: false, green: false },
     statsByPlayer: {},
     depositCenterPose: null,
     depositOverlayCalibration: null,
@@ -748,6 +787,7 @@ function saveConfig() {
     invertY,
     activeTeam,
     playerName,
+    playerWebcamRotate180ByTeam,
     statsByPlayer,
     depositCenterPose: poseForStorage(depositCenterPose),
     depositOverlayCalibration,
@@ -758,6 +798,14 @@ function clampInt(value, min, max, fallback) {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
+}
+
+function normalizePlayerWebcamRotation(value, fallback = false) {
+  const raw = value && typeof value === 'object' ? value : {};
+  return {
+    purple: raw.purple !== undefined ? !!raw.purple : !!fallback,
+    green: raw.green !== undefined ? !!raw.green : !!fallback,
+  };
 }
 
 function cleanPlayerName(value) {
@@ -908,6 +956,8 @@ function operatorStatePayload(extra = {}) {
     target_pose: poseForStorage(depositCenterPose),
     distance_mm: Number.isFinite(lastDistanceMm) ? lastDistanceMm : null,
     pickup_state: currentPickupText,
+    player_webcam_rotate180: false,
+    player_webcam_rotate180_by_team: playerWebcamRotate180ByTeam,
     ...extra,
   };
 }
@@ -2222,6 +2272,16 @@ async function init() {
     updateSetupStatus(selectedTag);
     publishSetupState();
   });
+  for (const team of ['purple', 'green']) {
+    playerWebcamRotateInputs[team].addEventListener('change', () => {
+      playerWebcamRotate180ByTeam = {
+        ...playerWebcamRotate180ByTeam,
+        [team]: playerWebcamRotateInputs[team].checked,
+      };
+      saveConfig();
+      publishSetupState(true);
+    });
+  }
   tagInput.addEventListener('input', () => {
     if (!readConfiguredTagId()) {
       selectedTag = null;
@@ -2252,6 +2312,9 @@ async function init() {
 
   teamSelect.value = activeTeam;
   playerNameInput.value = playerName;
+  for (const team of ['purple', 'green']) {
+    playerWebcamRotateInputs[team].checked = !!playerWebcamRotate180ByTeam[team];
+  }
   updateReadyDisplay();
   tagInput.value = String(tagId);
   syncRadiusInputs(activeRadiusMm);
