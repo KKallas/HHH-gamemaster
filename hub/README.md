@@ -83,5 +83,5 @@ folder on `sys.path` during discovery. A machine's OWN sibling modules
 sandbox loads independently.
 
 Keep page URLs relative (or derive the sandbox prefix from
-`location.pathname`, as tag-game does) — machines are mounted under
+`location.pathname`, as pickup-game does) — machines are mounted under
 `/s/<sandbox>/p/<slug>`, and the prefix is not fixed.

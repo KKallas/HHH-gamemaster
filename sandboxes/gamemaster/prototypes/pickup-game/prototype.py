@@ -233,6 +233,58 @@ def api_finish():
     return jsonify(out)
 
 
+def _remove_log_row(team, started_at_iso):
+    """Remove the most recent logged row matching team + started_at (used to
+    undo a finish). Returns True if a row was removed."""
+    if not os.path.exists(LOG_PATH):
+        return False
+    try:
+        with open(LOG_PATH, "r", encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError:
+        return False
+    drop_idx = None
+    for i in range(len(rows) - 1, -1, -1):
+        if rows[i].get("team") == team and rows[i].get("started_at") == started_at_iso:
+            drop_idx = i
+            break
+    if drop_idx is None:
+        return False
+    rows.pop(drop_idx)
+    with open(LOG_PATH, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=LOG_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return True
+
+
+@bp.route("/api/cancel", methods=["POST"])
+def api_cancel():
+    """Undo a finish: revert a done run back to running, drop its logged row,
+    and keep the original started_at so the counter continues as if it was
+    never stopped."""
+    if not _is_operator():
+        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    data = request.get_json(silent=True) or {}
+    team = data.get("team")
+    if team not in TEAMS:
+        return jsonify({"ok": False, "error": "team required"}), 400
+    with _state_lock:
+        ts = _state["teams"][team]
+        if ts["phase"] != "done" or not ts["started_at"]:
+            return jsonify({"ok": False, "error": "no finished run to cancel"}), 409
+        started_iso = _dt.datetime.fromtimestamp(ts["started_at"], _dt.UTC).isoformat()
+        _remove_log_row(team, started_iso)
+        ts.update({
+            "phase": "running", "completed_at": None, "elapsed_seconds": None,
+        })
+        _seed_best_from_log()
+        _state["updated_at"] = time.time()
+        out = _public_state_locked()
+    _live.bump()
+    return jsonify(out)
+
+
 @bp.route("/api/reset", methods=["POST"])
 def api_reset():
     data = request.get_json(silent=True) or {}

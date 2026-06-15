@@ -79,8 +79,6 @@ DEFAULT_SANDBOXES = {
         "admin": True,
         "shared_api": {
             "dobot-mg400-relay": ["green", "purple"],
-            "tag-game": ["green", "purple"],
-            "2p-tag-game": ["green", "purple"],
             "pickup-game": ["green", "purple"],
             "webcam": ["green", "purple"],
         },
@@ -636,11 +634,6 @@ class Hub:
         def theme_css():
             """Shared visual theme, linked by every machine page (public)."""
             return send_from_directory(HUB_DIR, "theme.css")
-
-        @app.route("/Video1.mp4")
-        def mission_video():
-            """Public mission briefing video for the Tag Game player screen."""
-            return send_from_directory(self.root_dir, "Video1.mp4")
 
         return app
 

@@ -33,6 +33,7 @@
   button:hover:not(:disabled) { border-color:var(--accent); }
   button:disabled { opacity:.4; cursor:not-allowed; }
   button.finish { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:850; width:100%; }
+  button.finish.cancel { background:var(--warn); border-color:var(--warn); color:#1a1200; }
   button.reset { background:#2a1216; border-color:#5a2630; color:#ff8a96; width:100%; margin-top:8px; }
   .bestCard { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
   .bestCard .k { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
@@ -153,7 +154,11 @@ function applyState(s) {
     el(`name-${t}`).classList.toggle("empty", !ts.player);
     el(`ph-${t}`).textContent = phase;
     el(`ph-${t}`).className = "ph " + phase;
-    el(`finish-${t}`).disabled = phase !== "running";
+    const finishBtn = el(`finish-${t}`);
+    const cap = t.charAt(0).toUpperCase() + t.slice(1);
+    finishBtn.disabled = phase !== "running" && phase !== "done";
+    finishBtn.classList.toggle("cancel", phase === "done");
+    finishBtn.textContent = phase === "done" ? `Cancel ${cap} finish` : `Mark ${cap} finished`;
     if (phase === "running") { anyRunning = true; }
     else el(`timer-${t}`).textContent = phase === "done" ? fmtSecs(ts.elapsed_seconds) : "--";
   }
@@ -186,7 +191,10 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp
 
 function wire() {
   for (const t of TEAMS) {
-    el(`finish-${t}`).onclick = async () => { try { applyState(await api("/api/finish", { team: t })); refreshResults(); } catch (e) { alert(e.message); } };
+    el(`finish-${t}`).onclick = async () => {
+      const done = state && state.teams && state.teams[t] && state.teams[t].phase === "done";
+      try { applyState(await api(done ? "/api/cancel" : "/api/finish", { team: t })); refreshResults(); } catch (e) { alert(e.message); }
+    };
     el(`reset-${t}`).onclick = async () => { try { applyState(await api("/api/reset", { team: t })); } catch (e) { alert(e.message); } };
   }
 }
