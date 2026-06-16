@@ -650,3 +650,21 @@ def api_stream():
     clean = request.args.get("clean") in ("1", "true", "yes")
     return Response(_mgr.mjpeg(clean),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@bp.route("/api/frame.jpg")
+def api_frame():
+    """ONE JPEG frame (the latest grabbed). For pages that POLL frames instead of
+    holding the MJPEG stream open: a poll releases the browser connection between
+    frames, so the video doesn't permanently occupy one of the ~6 connections a
+    browser allows per origin — which otherwise get exhausted by several
+    stream-holding tabs and stall button clicks."""
+    if _mgr.active_index() is None:
+        remembered = _load_settings()
+        if remembered is not None:
+            _mgr.open(remembered["index"], remembered["width"], remembered["height"])
+    clean = request.args.get("clean") in ("1", "true", "yes")
+    # No no-store: each poll already uses a unique ?t= URL for freshness, and
+    # letting the just-fetched frame sit in the memory cache means the page can
+    # swap it onto the visible <img> without a second network request.
+    return Response(_mgr.latest_jpeg(clean), mimetype="image/jpeg")

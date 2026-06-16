@@ -56,6 +56,10 @@ def _cal_field(side):
         for i, m in enumerate(CORNERS)
     ]
 _SNAP_PATH = os.path.join(HERE, "field-snapshot.json")
+# Which side's capture view is flipped 180° — persisted so the operator's choice
+# (and therefore the corner-marker x positions) survives a hub/software restart
+# instead of snapping back to the default and flipping the markers around.
+_FLIP_PATH = os.path.join(HERE, "flip.json")
 _field_lock = threading.Lock()
 _field_active = False
 _hub_ctx = None
@@ -148,6 +152,28 @@ _session = {
 }
 
 
+def _load_flipped_side():
+    """Restore the operator's flipped-side choice from disk (default 'green')."""
+    try:
+        with open(_FLIP_PATH, "r", encoding="utf-8") as fh:
+            side = json.load(fh).get("flipped_side")
+    except (OSError, ValueError, TypeError):
+        return
+    if side in SIDES:
+        _session["flipped_side"] = side
+
+
+def _save_flipped_side():
+    try:
+        with open(_FLIP_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"flipped_side": _session["flipped_side"]}, fh)
+    except OSError:
+        pass
+
+
+_load_flipped_side()
+
+
 # ---- roles (mirrors pickup-game) -------------------------------------------
 def _roles():
     return request.environ.get("hhh.roles") or set()
@@ -181,7 +207,11 @@ def _public_state_locked():
     out["corners"] = {k: dict(v) for k, v in _session["corners"].items()}
     out["markers"] = list(CORNERS)
     out["field_active"] = _field_active
-    out["server_time"] = time.time()
+    # NB: deliberately NO server_time here. A field that changes every tick would
+    # make every SSE snapshot a unique payload, defeating live.py's "identical →
+    # keep-alive ping" coalescing — so the page would re-render ~2x/s forever
+    # (buttons blink, clicks get eaten). Keeping the snapshot stable lets the
+    # stream go quiet when nothing actually changes.
     return out
 
 
@@ -314,6 +344,7 @@ def api_flip():
     with _lock:
         _session["flipped_side"] = side
         _session["updated_at"] = time.time()
+        _save_flipped_side()
         cur_side = _session["side"]
     field_msg = None
     if _field_active and cur_side:

@@ -107,7 +107,7 @@ const ORIGIN = location.origin;
 const GM   = `${ORIGIN}/s/gamemaster/p/calibration`;
 const RELAY= `${ORIGIN}/s/gamemaster/p/dobot-mg400-relay`;
 const AREAS= `${ORIGIN}/s/gamemaster/p/playfield-areas`;
-const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam/api/stream`;
+const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam`;
 const CORNERS = [33, 34, 35, 36];
 const el = id => document.getElementById(id);
 let state = null;
@@ -123,10 +123,26 @@ const jpatch = (url, body) => jreq(url, 'PATCH', body);
 async function jget(url){ const r=await fetch(url); return r.json(); }
 function setStatus(m, err){ el('status').textContent=m||''; el('status').style.color= err?'var(--err)':'var(--muted)'; }
 
-function startWebcam(){ el('webcamFeed').src = `${WEBCAM}?t=${Date.now()}`; }
+// Poll single frames (releasing the HTTP connection between each) rather than
+// holding an MJPEG stream open, so a browser connection stays free for button
+// clicks — HTTP/1.1 allows only ~6 per origin across all open tabs.
+function startWebcam(){
+  const img = el('webcamFeed'), next = new Image();
+  next.onload = () => { img.src = next.src; setTimeout(startWebcam, 100); };
+  next.onerror = () => setTimeout(startWebcam, 1000);
+  next.src = `${WEBCAM}/api/frame.jpg?t=${Date.now()}`;
+}
 
+let _stateSig = null;
 function render(s){
-  state = s || {};
+  s = s || {};
+  // Skip no-op re-renders: the SSE re-sends the snapshot on a timer, so without
+  // this the UI would rebuild ~2x/s. Compare only the meaningful state.
+  const sig = JSON.stringify({ side:s.side, flipped_side:s.flipped_side,
+    field_active:s.field_active, corners:s.corners });
+  if(sig === _stateSig) return;
+  _stateSig = sig;
+  state = s;
   const side = state.side;
   document.querySelectorAll('#sideSeg button').forEach(b => b.classList.toggle('active', b.dataset.side===side));
   el('sideLabel').innerHTML = side ? `· <span class="sideTag ${side}">${side.toUpperCase()}</span>` : '· (no side selected)';
@@ -174,7 +190,6 @@ function wire(){
 
 async function init(){
   wire(); startWebcam();
-  el('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
   try { render(await jget(`${GM}/api/state`)); } catch(_){}
   const es = new EventSource(`${GM}/api/events`);
   es.onmessage = e => { try { render(JSON.parse(e.data)); } catch(_){} };

@@ -82,7 +82,7 @@
           <div class="team green" id="team-green"></div>
           <div class="team purple" id="team-purple"></div>
         </div>
-        <div class="hint" style="margin-top:10px;color:var(--muted);font-size:12px">The round timer starts for both teams once both players have entered a name and enabled their arm — until then they can't move.</div>
+        <div class="hint" style="margin-top:10px;color:var(--muted);font-size:12px">Each side's timer starts the moment that player enables their arm — the two sides are independent, so one side can play alone. A player can't move until their own timer is running.</div>
         <div class="row"><button id="btnNewRound" class="danger" style="width:100%">Reset round (clear both players)</button></div>
       </div>
       <div class="panel">
@@ -106,14 +106,22 @@
 <script>
 const ORIGIN = location.origin;
 const RELAY = `${ORIGIN}/s/gamemaster/p/dobot-mg400-relay`;
-const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam/api/stream`;
+const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam`;
 const SIDES = ['green','purple'];
 const el = id => document.getElementById(id);
 
 function setStatus(m, err){ el('status').textContent=m||''; el('status').style.color=err?'var(--err)':'var(--muted)'; }
 async function jpost(path, body){ const r=await fetch(RELAY+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{}}catch(_){}; if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; }
 
-function startWebcam(){ el('webcamFeed').src=`${WEBCAM}?t=${Date.now()}`; }
+// Poll single frames (releasing the HTTP connection between each) instead of
+// holding an MJPEG stream open, so button clicks aren't starved of the ~6
+// connections a browser allows per origin across all open tabs.
+function startWebcam(){
+  const img=el('webcamFeed'), next=new Image();
+  next.onload=()=>{ img.src=next.src; setTimeout(startWebcam,100); };
+  next.onerror=()=>setTimeout(startWebcam,1000);
+  next.src=`${WEBCAM}/api/frame.jpg?t=${Date.now()}`;
+}
 
 function fmtPose(p){ return Array.isArray(p) ? `${p[0].toFixed(0)}, ${p[1].toFixed(0)}, ${p[2].toFixed(0)}` : '—'; }
 
@@ -234,7 +242,7 @@ function gameApplyState(s){
     const phase = ts.phase || 'idle';
     r.pname.textContent = ts.player || 'no player';
     r.pname.classList.toggle('empty', !ts.player);
-    r.phase.textContent = phase==='ready' ? (ts.enabled?'enabled — waiting':'ready') : phase;
+    r.phase.textContent = phase;
     r.phase.className = 'gphase ' + phase;
     const cap = side[0].toUpperCase()+side.slice(1);
     r.finish.disabled = phase!=='running' && phase!=='done';
@@ -281,7 +289,6 @@ async function onNewRound(){
 
 async function init(){
   startWebcam();
-  el('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
   el('btnNewRound').onclick = onNewRound;
   SIDES.forEach(buildTeam);   // build both cards up front so either stream can fill them
   // Relay stream — arm status + kick/reset/speed.

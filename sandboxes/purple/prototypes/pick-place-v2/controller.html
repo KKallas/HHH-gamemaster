@@ -296,9 +296,13 @@ function renderOverlay(){
 
 /* ---- motion ---- */
 function clampZ(v){ return Math.max(workspace.z[0], Math.min(workspace.z[1], v)); }
+// Movement is allowed once the timer is running, and stays unlocked after the
+// round is marked finished so the player can clear the field (move the TCP away,
+// switch off the vacuum) for the next player. Only blocked before the start.
+function canMove(){ return gPhase==='running' || gPhase==='done'; }
 async function moveTo(X,Y,Z){
   if(!connected){ log('Connect + Enable first.','err'); return; }
-  if(gPhase!=='running'){ log('Round not started — both players must enable their arms first.','warn'); return; }
+  if(!canMove()){ log('Enable your arm to start the timer before moving.','warn'); return; }
   const res=await api('/api/move',{x:X,y:Y,z:clampZ(Z)});
   if(!res.ok) log(`move ✗ ${res.error||res.errid||''}`,'err');
 }
@@ -322,7 +326,7 @@ function onFeedClick(ev){
   log(`pointer → image ${c.x},${c.y} → robot X ${w.x.toFixed(1)} Y ${w.y.toFixed(1)} Z ${pickZ.toFixed(1)} (grab Z ${grabZ.toFixed(1)}, move Z ${moveZ.toFixed(1)})`);
   if(gid('autoMove').checked && connected){ log(`auto-move → X ${w.x.toFixed(1)} Y ${w.y.toFixed(1)} Z ${moveZ.toFixed(1)}`); moveTo(target.X,target.Y,target.moveZ); }
 }
-function updateMoveBtns(){ const ok=connected && !!target && gPhase==='running'; gid('btnMove').disabled=!ok; gid('btnDescend').disabled=!ok; gid('btnLift').disabled=!ok; }
+function updateMoveBtns(){ const ok=connected && !!target && canMove(); gid('btnMove').disabled=!ok; gid('btnDescend').disabled=!ok; gid('btnLift').disabled=!ok; }
 // In auto-move mode the click already moves, so the manual button is redundant — hide it.
 function syncAutoMove(){ gid('btnMove').style.display = gid('autoMove').checked ? 'none' : ''; }
 
@@ -395,8 +399,9 @@ function startGClock(){
   tick(); gClock=setInterval(tick,100);
 }
 
-// Tell the gamemaster game whether this arm is enabled; the round starts once
-// BOTH teams report enabled. Deduped so we only POST on a change.
+// Tell the gamemaster game whether this arm is enabled; this side's timer starts
+// the moment it reports enabled (independent of the other side). Deduped so we
+// only POST on a change.
 async function maybeReportEnabled(on){
   if(on===lastReportedEnabled) return;
   lastReportedEnabled=on;
@@ -420,13 +425,12 @@ function gameApplyState(s){
     startGClock();
   } else if(phase==='done'){
     stopGClock(); gid('gClock').textContent=`${Number(ts.elapsed_seconds).toFixed(1)}s`;
-    setLock(true,`Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s — wait for the gamemaster to restart.`);
-    gid('gStatus').textContent='Finished.';
+    setLock(true,`Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s — you can still move to clear the field (lift the TCP away, switch off the vacuum). Wait for the gamemaster to restart.`);
+    gid('gStatus').textContent='Finished — clear the field for the next player.';
   } else { // idle | ready
     stopGClock(); gid('gClock').textContent='--';
-    setLock(true, ts.enabled ? 'Arm enabled — waiting for the other player to enable.'
-                             : 'Enable your arm to start. You can\'t move until both arms are enabled.');
-    gid('gStatus').textContent = ts.enabled ? 'Waiting for the other player…' : 'Connect → Enable to begin.';
+    setLock(true, 'Connect → Enable your arm to start the timer. You can\'t move until it\'s running.');
+    gid('gStatus').textContent='Connect → Enable to begin.';
   }
   updateMoveBtns();
 }
@@ -472,10 +476,17 @@ function wire(){
 
 async function init(){
   wire(); setConnUI(false);
-  const camSrc=()=>`${WEBCAM}/api/stream?clean=1&t=${Date.now()}`;
-  gid('webcamFeed').src=camSrc();
-  gid('webcamFeed').onerror=()=>setTimeout(()=>{ gid('webcamFeed').src=camSrc(); },1000);
-  gid('webcamFeed').onload=renderOverlay;
+  const fw=gid('webcamFeed');
+  fw.onload=renderOverlay;
+  // Poll single frames (releasing the HTTP connection between each) instead of
+  // holding an MJPEG stream open, so button clicks aren't starved of the ~6
+  // connections a browser allows per origin across all open tabs.
+  (function pollCam(){
+    const next=new Image();
+    next.onload=()=>{ fw.src=next.src; setTimeout(pollCam,100); };
+    next.onerror=()=>setTimeout(pollCam,1000);
+    next.src=`${WEBCAM}/api/frame.jpg?clean=1&t=${Date.now()}`;
+  })();
   window.addEventListener('resize', renderOverlay);
   const saved=localStorage.getItem(CALIB_KEY); if(saved) loadCalib(saved,false);
   const cfg=await api('/api/config');

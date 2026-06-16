@@ -151,52 +151,97 @@ function setFlipUI(){
 }
 
 /* ---- overlays: detected corner tags, captured pixels, active arm ---- */
+const CROSS_COLOR = { active:'#f5a623', cap:'#4f9dff', det:'#36e07c', other:'#8a93a6' };
+function crossColor(cls){
+  return cls.includes('active') ? CROSS_COLOR.active
+       : cls.includes('cap')    ? CROSS_COLOR.cap
+       : cls.includes('det')    ? CROSS_COLOR.det : CROSS_COLOR.other;
+}
 function renderOverlay(){
-  const wrap = gid('feedWrap');
-  wrap.querySelectorAll('.cross,.lbl').forEach(n=>n.remove());
   const corners = (state&&state.corners)||{};
-  const add = (px,py,cls,label) => {
-    const d=pixelToDisplay(px,py); if(!d) return;
-    const c=document.createElement('div'); c.className='cross '+cls; c.style.left=d.left+'px'; c.style.top=d.top+'px'; wrap.appendChild(c);
-    if(label){ const l=document.createElement('div'); l.className='lbl'; l.style.left=d.left+'px'; l.style.top=d.top+'px'; l.textContent=label; l.style.color=getComputedStyle(c).color; wrap.appendChild(l); }
-  };
-  // Other detected tags (we draw our own metadata over the CLEAN image, so the
-  // clean stream still shows everything the camera sees).
-  for(const id in detected){ if(!CORNERS.includes(Number(id))) add(detected[id].x, detected[id].y, 'other', `#${id}`); }
+  // Collect what to draw first.
+  const items = [];
+  for(const id in detected){ if(!CORNERS.includes(Number(id))) items.push([detected[id].x, detected[id].y, 'other', `#${id}`]); }
   CORNERS.forEach((m,i)=>{
     const c = corners[String(m)]||{};
-    if(c.cam) add(c.cam.x, c.cam.y, 'cap'+(activeCorner===m?' active':''), `C${i+1}✓`);
-    else if(detected[m]) add(detected[m].x, detected[m].y, 'det'+(activeCorner===m?' active':''), `C${i+1} #${m}`);
+    if(c.cam) items.push([c.cam.x, c.cam.y, 'cap'+(activeCorner===m?' active':''), `C${i+1}✓`]);
+    else if(detected[m]) items.push([detected[m].x, detected[m].y, 'det'+(activeCorner===m?' active':''), `C${i+1} #${m}`]);
   });
+  // Skip the whole rebuild when nothing visible changed. This runs ~2.5x/s from
+  // the tag poll; previously it tore down + re-added every cross AND called
+  // getComputedStyle per label (a forced full-page layout flush each time), which
+  // repainted the entire page — blinking the hovered button and dropping clicks.
+  const g = imgGeom();
+  const sig = JSON.stringify(items) + '|' + (g ? `${g.scale.toFixed(3)},${Math.round(g.offX)},${Math.round(g.offY)}` : 'na');
+  if(sig === renderOverlay._sig) return;
+  renderOverlay._sig = sig;
+  const wrap = gid('feedWrap');
+  wrap.querySelectorAll('.cross,.lbl').forEach(n=>n.remove());
+  for(const [px,py,cls,label] of items){
+    const d = pixelToDisplay(px,py); if(!d) continue;
+    const c=document.createElement('div'); c.className='cross '+cls; c.style.left=d.left+'px'; c.style.top=d.top+'px'; wrap.appendChild(c);
+    if(label){ const l=document.createElement('div'); l.className='lbl'; l.style.left=d.left+'px'; l.style.top=d.top+'px'; l.textContent=label; l.style.color=crossColor(cls); wrap.appendChild(l); }
+  }
 }
 
 /* ---- corner control rows ---- */
 function cornerName(m){ return 'Corner '+(CORNERS.indexOf(m)+1); }
-function renderCorners(){
-  const corners = (state&&state.corners)||{};
-  gid('cornersA').innerHTML = CORNERS.map(m=>{
-    const c = corners[String(m)]||{}; const det = !!detected[m]; const active = activeCorner===m;
-    const cam = c.cam ? `<span class="yes">px ${c.cam.x}, ${c.cam.y}</span> <span class="pill ${c.cam_src||'aruco'}">${c.cam_src||'aruco'}</span>` : (det?`<span class="sub">detected at ${detected[m].x}, ${detected[m].y}</span>`:'<span class="no">marker not visible</span>');
-    return `<div class="corner ${active?'active':''}" data-m="${m}">
-      <div class="hd"><span class="nm">${cornerName(m)}</span><span class="mk">#${m}</span><span class="st">${c.cam?'<span class="yes">✓ cam</span>':''}</span></div>
-      <div class="vals">${cam}</div>
+// Build the corner rows ONCE, keep element refs, and wire the buttons once. The
+// buttons are then NEVER recreated — only text/classes/disabled are patched in
+// place — so a hovered button can't blink or drop a click when state changes.
+let cornerRefs = null;
+function buildCorners(){
+  const A = gid('cornersA'), B = gid('cornersB');
+  A.innerHTML = ''; B.innerHTML = '';
+  cornerRefs = {};
+  CORNERS.forEach(m=>{
+    const rowA = document.createElement('div'); rowA.className='corner'; rowA.dataset.m=m;
+    rowA.innerHTML = `
+      <div class="hd"><span class="nm">${cornerName(m)}</span><span class="mk">#${m}</span><span class="st"></span></div>
+      <div class="vals"></div>
       <div class="row">
-        <button class="sm" data-act="auto" data-m="${m}" ${det?'':'disabled'}>Capture (ArUco)</button>
-        <button class="sm warn" data-act="click" data-m="${m}">${active?'Click image…':'Set by click'}</button>
-        ${c.cam?`<button class="sm" data-act="camclear" data-m="${m}">clear</button>`:''}
-      </div></div>`;
-  }).join('');
-  gid('cornersB').innerHTML = CORNERS.map(m=>{
-    const c = corners[String(m)]||{};
-    const rob = c.robot ? `<span class="yes">X ${c.robot.x}  Y ${c.robot.y}  Z ${c.robot.z}</span>` : '<span class="no">—</span>';
-    return `<div class="corner" data-m="${m}">
-      <div class="hd"><span class="nm">${cornerName(m)}</span><span class="mk">#${m}</span><span class="st">${c.robot?'<span class="yes">✓ xyz</span>':''}</span></div>
-      <div class="vals">${rob}</div>
-      <div class="row"><button class="sm" data-act="xyz" data-m="${m}" ${armConnected?'':'disabled'}>Capture XYZ here</button></div></div>`;
-  }).join('');
-  // wire row buttons
-  gid('cornersA').querySelectorAll('button').forEach(b=> b.onclick = ()=>cornerAction(b.dataset.act, Number(b.dataset.m)));
-  gid('cornersB').querySelectorAll('button').forEach(b=> b.onclick = ()=>cornerAction(b.dataset.act, Number(b.dataset.m)));
+        <button class="sm" data-act="auto">Capture (ArUco)</button>
+        <button class="sm warn" data-act="click">Set by click</button>
+        <button class="sm" data-act="camclear" style="display:none">clear</button>
+      </div>`;
+    A.appendChild(rowA);
+    const rowB = document.createElement('div'); rowB.className='corner'; rowB.dataset.m=m;
+    rowB.innerHTML = `
+      <div class="hd"><span class="nm">${cornerName(m)}</span><span class="mk">#${m}</span><span class="st"></span></div>
+      <div class="vals"></div>
+      <div class="row"><button class="sm" data-act="xyz">Capture XYZ here</button></div>`;
+    B.appendChild(rowB);
+    rowA.querySelectorAll('button').forEach(btn=> btn.onclick = ()=>cornerAction(btn.dataset.act, m));
+    rowB.querySelector('button').onclick = ()=>cornerAction('xyz', m);
+    cornerRefs[m] = {
+      rowA, stA: rowA.querySelector('.st'), valsA: rowA.querySelector('.vals'),
+      btnSetClick: rowA.querySelector('[data-act="click"]'),
+      btnClear: rowA.querySelector('[data-act="camclear"]'),
+      stB: rowB.querySelector('.st'), valsB: rowB.querySelector('.vals'),
+      btnXyz: rowB.querySelector('[data-act="xyz"]'),
+    };
+  });
+}
+// Tiny helper: only touch the DOM when the value actually changed (no needless repaints).
+function setHTML(el, html){ if(el && el._h !== html){ el._h = html; el.innerHTML = html; } }
+function renderCorners(){
+  if(!cornerRefs) buildCorners();
+  const corners = (state&&state.corners)||{};
+  CORNERS.forEach(m=>{
+    const r = cornerRefs[m];
+    const c = corners[String(m)]||{}; const det = !!detected[m]; const active = activeCorner===m;
+    r.rowA.classList.toggle('active', active);
+    setHTML(r.stA, c.cam ? '<span class="yes">✓ cam</span>' : '');
+    setHTML(r.valsA, c.cam
+      ? `<span class="yes">px ${c.cam.x}, ${c.cam.y}</span> <span class="pill ${c.cam_src||'aruco'}">${c.cam_src||'aruco'}</span>`
+      : (det ? `<span class="sub">detected at ${detected[m].x}, ${detected[m].y}</span>` : '<span class="no">marker not visible</span>'));
+    const clickTxt = active ? 'Click image…' : 'Set by click';
+    if(r.btnSetClick.textContent !== clickTxt) r.btnSetClick.textContent = clickTxt;
+    r.btnClear.style.display = c.cam ? '' : 'none';
+    setHTML(r.stB, c.robot ? '<span class="yes">✓ xyz</span>' : '');
+    setHTML(r.valsB, c.robot ? `<span class="yes">X ${c.robot.x}  Y ${c.robot.y}  Z ${c.robot.z}</span>` : '<span class="no">—</span>');
+    r.btnXyz.disabled = !armConnected;
+  });
 }
 
 async function cornerAction(act, m){
@@ -253,8 +298,17 @@ function setSideContext(side){
   if(!active){ gid('gateMsg').textContent = IS_GM ? 'Select a side on the operator page.' : `The game master is calibrating ${state.side||'no one'} — not ${SANDBOX}.`; }
 }
 
+let _stateSig = null;
 function render(s){
-  state = s||{};
+  s = s||{};
+  // Skip no-op re-renders: the SSE re-sends the snapshot on a timer, so without
+  // this the UI would rebuild ~2x/s (buttons blink, clicks get eaten). Ignore any
+  // server_time-style field by comparing only the meaningful state.
+  const sig = JSON.stringify({ side:s.side, flipped_side:s.flipped_side,
+    field_active:s.field_active, corners:s.corners });
+  if(sig === _stateSig) return;
+  _stateSig = sig;
+  state = s;
   setSideContext(state.side);
   flipped = ((state.flipped_side || null) === SIDE);   // master controls the flip
   setFlipUI();
@@ -269,9 +323,12 @@ function refreshSave(){
 async function pollTags(){
   try {
     const d = await jget(`${WEBCAM}/api/tags`);
-    const all = [...(d.tags||[]), ...(d.detections||[])];
+    // Use ONLY the DEBOUNCED tags, not the raw per-frame detections. The raw list
+    // flickers on/off frame to frame, which (when mixed in) made each corner's
+    // "detected" state toggle ~2.5x/s — blinking the Capture buttons and disabling
+    // them at the instant of a click (so it took several clicks to register).
     const next = {};
-    for(const t of all){ if(next[t.id]===undefined) next[t.id] = { x:Math.round(t.x), y:Math.round(t.y) }; }
+    for(const t of (d.tags||[])){ if(next[t.id]===undefined) next[t.id] = { x:Math.round(t.x), y:Math.round(t.y) }; }
     detected = next; renderCorners(); renderOverlay();
   } catch(_){}
 }
@@ -310,11 +367,18 @@ async function downloadCsv(){
 }
 
 function init(){
-  const camSrc = () => `${WEBCAM}/api/stream?clean=1&t=${Date.now()}`;
   const fw = gid('webcamFeed');
-  fw.src = camSrc();
-  fw.onerror = () => setTimeout(()=>{ fw.src = camSrc(); }, 1000);
-  fw.onload = renderOverlay;
+  // Poll single frames (releasing the HTTP connection between each) instead of
+  // holding an MJPEG stream open, so button clicks aren't starved of the ~6
+  // connections a browser allows per origin across all open tabs. The overlay is
+  // repositioned by the tag poll / resize, NOT on every frame (that just churns).
+  (function pollCam(){
+    const next = new Image();
+    next.onload = () => { fw.src = next.src; setTimeout(pollCam, 100); };
+    next.onerror = () => setTimeout(pollCam, 1000);
+    next.src = `${WEBCAM}/api/frame.jpg?clean=1&t=${Date.now()}`;
+  })();
+  renderOverlay();
   gid('feedWrap').addEventListener('click', onImageClick);
   gid('btnConnect').onclick = connectArm;
   gid('btnEnable').onclick = () => cart('/api/enable',{}).then(()=>log('enable')).catch(e=>log('enable ✗ '+e.message));

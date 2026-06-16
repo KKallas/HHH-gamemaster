@@ -7,8 +7,9 @@ the dobot-mg400-relay), per-side kick / reset / speed controls — AND the v2 ga
 layer (same high-score system as the v1 pickup-game):
 
   - Each player enters a name (prompted on every page load) and enables their arm.
-  - The round timer starts for BOTH teams the moment BOTH have enabled their arms
-    — before that the players cannot move.
+  - Each side's timer starts the moment THAT side enables its arm — the two sides
+    are fully independent, so a single side can play alone. Before a side's timer
+    is running its player cannot move.
   - The gamemaster closes each team's timer with "Mark <team> finished"; every
     finished run is appended to ``pickplace-v2-log.csv`` and ranked on the board.
 
@@ -127,17 +128,17 @@ def _seed_best_from_log():
     _state["best_team"] = best_team
 
 
-def _maybe_start_locked():
-    """If BOTH teams are registered (ready) and have enabled their arms, start the
-    round for both at the same instant. Call with _state_lock held."""
-    teams = _state["teams"]
-    if all(teams[t]["phase"] == "ready" and teams[t]["enabled"] for t in TEAMS):
+def _maybe_start_side_locked(team):
+    """Start THIS side's timer the moment it is registered (ready) and has enabled
+    its arm — independent of the other side, so a single side can play on its own.
+    Call with _state_lock held."""
+    ts = _state["teams"][team]
+    if ts["phase"] == "ready" and ts["enabled"]:
         now = time.time()
-        for t in TEAMS:
-            teams[t].update({
-                "phase": "running", "started_at": now,
-                "completed_at": None, "elapsed_seconds": None,
-            })
+        ts.update({
+            "phase": "running", "started_at": now,
+            "completed_at": None, "elapsed_seconds": None,
+        })
         _state["updated_at"] = now
         return True
     return False
@@ -196,8 +197,8 @@ def api_player():
 
 @bp.route("/api/enabled", methods=["POST"])
 def api_enabled():
-    """A player reports whether their arm is currently enabled. When both teams
-    are ready + enabled the round timer starts for both at once."""
+    """A player reports whether their arm is currently enabled. That side's timer
+    starts the moment it is enabled — independent of the other side."""
     data = request.get_json(silent=True) or {}
     team = _requested_team(data)
     if team not in TEAMS:
@@ -209,7 +210,7 @@ def api_enabled():
         if ts["phase"] in ("idle", "ready"):
             ts["enabled"] = on
             _state["updated_at"] = time.time()
-            _maybe_start_locked()
+            _maybe_start_side_locked(team)
         out = _public_state_locked()
     _live.bump()
     return jsonify(out)
