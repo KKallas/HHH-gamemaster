@@ -63,16 +63,15 @@
       <button id="btnRestore">Restore field</button>
     </div>
     <div class="row" style="margin-top:10px">
-      <label class="sub">Flip the picture for:
+      <label class="sub">Flipped side (180° view):
         <select id="flipSel" style="margin-left:6px">
-          <option value="">none</option>
           <option value="green">Green</option>
           <option value="purple">Purple</option>
         </select>
       </label>
-      <span class="hint" style="margin:0">— that side's capture view turns 180° (camera coordinates stay put).</span>
+      <span class="hint" style="margin:0">— that side's capture view turns 180° (camera coordinates stay put). One side is always flipped.</span>
     </div>
-    <div class="hint" id="selHint">Selecting a side kicks the other and replaces the playfield with that side's 4 corner markers (green x −4…9, purple x −9…−4; field snapshotted first). “Stop / restore” puts the original field back. <span id="fieldState"></span></div>
+    <div class="hint" id="selHint">Selecting a side kicks the other and replaces the playfield with that side's 4 corner markers (the flipped side uses x −4 & 9, the non-flipped side x −9 & 4; field snapshotted first). “Stop / restore” puts the original field back. <span id="fieldState"></span></div>
     <div id="status" class="hint"></div>
   </div>
 
@@ -132,7 +131,7 @@ function render(s){
   document.querySelectorAll('#sideSeg button').forEach(b => b.classList.toggle('active', b.dataset.side===side));
   el('sideLabel').innerHTML = side ? `· <span class="sideTag ${side}">${side.toUpperCase()}</span>` : '· (no side selected)';
   el('fieldState').textContent = state.field_active ? '· Calibration markers are on the playfield.' : '· Playfield is in its normal state.';
-  if (document.activeElement !== el('flipSel')) el('flipSel').value = state.flipped_side || '';
+  if (document.activeElement !== el('flipSel')) el('flipSel').value = state.flipped_side || 'green';
   const corners = state.corners || {};
   el('cornersBody').innerHTML = CORNERS.map((m,i) => {
     const c = corners[String(m)] || {};
@@ -163,7 +162,7 @@ async function selectSide(side){
 function wire(){
   document.querySelectorAll('#sideSeg button').forEach(b => b.onclick = () => selectSide(b.dataset.side));
   el('btnStop').onclick = () => selectSide(null);
-  el('flipSel').onchange = async () => { try { render(await jpost(`${GM}/api/flip`, { side: el('flipSel').value || null })); setStatus(`Flip the picture for: ${el('flipSel').value||'none'}.`); } catch(e){ setStatus(e.message, true); } };
+  el('flipSel').onchange = async () => { try { render(await jpost(`${GM}/api/flip`, { side: el('flipSel').value })); setStatus(`Flipped side: ${el('flipSel').value}.`); } catch(e){ setStatus(e.message, true); } };
   el('btnSetup').onclick = async () => { try { render(await jpost(`${GM}/api/field/setup`,{})); setStatus('Corner markers drawn on the playfield.'); } catch(e){ setStatus(e.message, true); } };
   el('btnRestore').onclick = async () => { try { render(await jpost(`${GM}/api/field/restore`,{})); setStatus('Original playfield restored.'); } catch(e){ setStatus(e.message, true); } };
   el('btnClear').onclick = async () => { try { render(await jpost(`${GM}/api/clear`, {})); } catch(e){ setStatus(e.message, true); } };

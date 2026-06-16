@@ -37,19 +37,17 @@ CORNERS = (33, 34, 35, 36)
 SIDES = ("green", "purple")
 
 # The calibration playfield is just the four corner markers. Corner z is fixed,
-# but x depends on WHICH side is calibrated — the two bots reach different halves
-# of the work area: green → x in {4, 9}, purple → x in {-9, -4} (y on the ground).
-# When calibration starts we snapshot the live playfield, replace it with these,
-# and restore the snapshot when done.
+# but x depends on whether the side being calibrated is the FLIPPED one: that bot
+# reaches x in {-4, 9}; the non-flipped bot reaches {-9, 4} (z = ±2.5, y on the
+# ground). When calibration starts we snapshot the live playfield, replace it with
+# these, and restore the snapshot when done.
 _CORNER_Z = {33: -2.5, 34: -2.5, 35: 2.5, 36: 2.5}
-_SIDE_X = {
-    "green":  {33: -4.0, 36: -4.0, 34: 9.0, 35: 9.0},
-    "purple": {33: -9.0, 36: -9.0, 34: -4.0, 35: -4.0},
-}
+_FLIP_X = {33: -4.0, 36: -4.0, 34: 9.0, 35: 9.0}     # the flipped side
+_NORMAL_X = {33: -9.0, 36: -9.0, 34: 4.0, 35: 4.0}   # the non-flipped side
 
 
 def _cal_field(side):
-    xs = _SIDE_X.get(side) or _SIDE_X["purple"]
+    xs = _FLIP_X if side == _session["flipped_side"] else _NORMAL_X
     return [
         {"id": f"cal{m}", "name": f"Corner {i+1} ({m})", "marker": m,
          "x": xs[m], "y": 0.0, "z": _CORNER_Z[m], "size": 2.0,
@@ -144,7 +142,8 @@ def _blank_corners():
 _session = {
     "side": None,                 # "green" | "purple" being calibrated (None = idle)
     "corners": _blank_corners(),  # marker-id (str) -> corner record
-    "flipped_side": None,         # which side's capture VIEW the operator flipped 180°
+    "flipped_side": "green",      # which side's capture VIEW is flipped 180° (one
+                                  # side is always flipped; green by default)
     "updated_at": time.time(),
 }
 
@@ -303,18 +302,28 @@ def api_field_setup():
 
 @bp.route("/api/flip", methods=["POST"])
 def api_flip():
-    """Operator picks which side's capture VIEW is flipped 180° (or none)."""
+    """Operator picks which side's capture VIEW is flipped 180°. One side is always
+    flipped. Changing it also re-draws the active side's markers, since the corner
+    x positions depend on which side is flipped."""
     if not _is_operator():
         return jsonify({"ok": False, "error": "gamemaster required"}), 403
     data = request.get_json(silent=True) or {}
-    side = data.get("side") or None
-    if side is not None and side not in SIDES:
-        return jsonify({"ok": False, "error": "side must be 'green', 'purple' or null"}), 400
+    side = data.get("side")
+    if side not in SIDES:
+        return jsonify({"ok": False, "error": "side must be 'green' or 'purple'"}), 400
     with _lock:
         _session["flipped_side"] = side
         _session["updated_at"] = time.time()
-        out = _public_state_locked()
+        cur_side = _session["side"]
+    field_msg = None
+    if _field_active and cur_side:
+        try:
+            _setup_field(cur_side)   # corner x depends on the flipped side
+        except (urllib.error.URLError, OSError, RuntimeError, ValueError) as e:
+            field_msg = f"playfield: {e}"
     _live.bump()
+    out = _public_state()
+    out["field_msg"] = field_msg
     return jsonify(out)
 
 
