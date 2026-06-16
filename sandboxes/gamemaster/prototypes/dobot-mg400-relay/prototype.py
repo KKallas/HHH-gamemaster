@@ -256,13 +256,11 @@ def _clamp_pose(x, y, z, r):
 
 # ---- Z soft-floor guard ----------------------------------------------------
 # A configurable Cartesian Z floor (mm, in the arm's base frame) the TCP may not
-# drop below while jogging joints. We read the ACTUAL pose Z from each arm's
-# feedback and learn a small local height model z ≈ a + b·J2 + c·J3 per side
-# (J1/J4 don't change height), so a descending joint target can be clamped to
-# stop exactly at the floor instead of crashing through it. Until enough motion
-# has been seen to fit a model, we fall back to simply holding the current J2/J3
-# whenever the arm is already at/below the floor. Operator-editable from the
-# relay screen; persisted across restarts.
+# drop below. Cartesian/XYZ targets are clamped directly. Joint targets are
+# clamped through a learned local height model z ≈ a + b·J2 + c·J3 per side
+# (J1/J4 don't change height), so a descending joint target can be stopped at the
+# floor instead of crashing through it. Operator-editable from the relay screen;
+# persisted across restarts.
 Z_FLOOR_PATH = os.path.join(HERE, "z-floor.json")
 DEFAULT_Z_FLOOR = -72.0
 _z_lock = threading.Lock()
@@ -382,6 +380,16 @@ def _apply_z_floor(side, j1, j2, j3, j4, robot):
     nj2 = aj2 + alpha * (j2 - aj2)
     nj3 = aj3 + alpha * (j3 - aj3)
     return j1, nj2, nj3, j4, f"Z floor {floor:.0f} mm reached — no room to go lower"
+
+
+def _apply_pose_z_floor(x, y, z, r):
+    """Clamp a Cartesian/XYZ target pose so the TCP target never goes below the
+    configured Z floor. Returns (x, y, z, r, note)."""
+    with _z_lock:
+        floor, enabled = _z_floor, _z_floor_enabled
+    if not enabled or z >= floor:
+        return x, y, z, r, None
+    return x, y, floor, r, f"Z floor {floor:.0f} mm reached — target Z clamped"
 
 
 def _is_operator_request():
@@ -916,9 +924,12 @@ def move():
         except (ValueError, TypeError, IndexError):
             return _fail("pose must be numeric")
         x, y, z, r = _clamp_pose(x, y, z, r)
+        x, y, z, r, znote = _apply_pose_z_floor(x, y, z, r)
         robot.set_target_pose(x, y, z, r)
         clamped = {"x": round(x, 2), "y": round(y, 2),
                    "z": round(z, 2), "r": round(r, 2)}
+        if znote:
+            clamped["z_floor"] = znote
         _log_command("robot", side, "set_target_pose", clamped, ok=True)
     _live.bump()
     return _ok(clamped=clamped, side=side)

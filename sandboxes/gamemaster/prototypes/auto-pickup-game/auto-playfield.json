@@ -1,0 +1,36 @@
+{
+  "format": "auto-pick-and-place-playfield-v1",
+  "saved_at": "2026-06-16T15:23:39.236266+00:00",
+  "areas": [
+    {
+      "name": "Area 884",
+      "x": 8.8,
+      "y": 1.2,
+      "z": 0.0,
+      "size": 5.2,
+      "color": "#7916a7",
+      "glow": 4.0,
+      "marker": 33,
+      "links": [],
+      "show_area": true,
+      "show_aruco": false,
+      "show_links": false,
+      "id": "a884"
+    },
+    {
+      "name": "Area 885",
+      "x": -10.5,
+      "y": 0.0,
+      "z": 0.0,
+      "size": 5.2,
+      "color": "#007027",
+      "glow": 1.0,
+      "marker": 34,
+      "links": [],
+      "show_area": true,
+      "show_aruco": false,
+      "show_links": true,
+      "id": "a885"
+    }
+  ]
+}

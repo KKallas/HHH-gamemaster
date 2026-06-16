@@ -107,9 +107,9 @@
       <span class="hint" id="zStatus" style="margin:0"></span>
     </div>
     <div class="hint" id="zLive" style="margin-top:8px">—</div>
-    <div class="hint" style="margin-top:6px">The arm won't jog its tool below this height.
-      It learns each arm's height model from motion — jog J2/J3 around once and the clamp
-      becomes smooth; until then it simply holds height once at/below the floor.</div>
+    <div class="hint" style="margin-top:6px">The arm won't move its tool below this height.
+      Cartesian/XYZ targets are clamped directly. Joint targets use each arm's learned
+      height model — jog J2/J3 around once and the clamp becomes smooth.</div>
   </section>
 
   <section class="panel monitor">
