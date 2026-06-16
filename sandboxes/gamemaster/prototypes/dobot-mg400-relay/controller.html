@@ -139,6 +139,8 @@
       <div class="line"><span class="lab">Controller</span><span class="sPresent">—</span></div>
       <div class="line"><span class="lab">Lease left</span><span class="sLease">—</span></div>
     </div>
+    <div class="stallWarn" style="display:none; margin-top:12px; padding:10px 12px; border-radius:8px;
+         background:#3a2410; border:1px solid var(--warn); color:var(--warn); font-weight:700;"></div>
     <div class="hint sServoErr" style="color:var(--err); display:none"></div>
     <button type="button" class="kick btnKick">Kick controller</button>
   </section>
@@ -186,6 +188,7 @@ function buildCards(defaults) {
       sMode: q(".sMode"), sEnabled: q(".sEnabled"), sFollower: q(".sFollower"),
       sPump: q(".sPump"), sJoints: q(".sJoints"), sPose: q(".sPose"),
       sPresent: q(".sPresent"), sLease: q(".sLease"), sServoErr: q(".sServoErr"),
+      stallWarn: q(".stallWarn"),
     };
   });
 }
@@ -218,6 +221,22 @@ function applyArm(side, arm, sideInfo) {
     c.sServoErr.style.display = "block";
     c.sServoErr.textContent = "Follower error: " + arm.servo_error;
   } else c.sServoErr.style.display = "none";
+
+  // Needs-restart banner. Two failure modes we've seen on this rig:
+  //  1) the controller reports ERROR (robot_mode 9) — a hard fault, and
+  //  2) "frozen": connected + enabled, acks commands, but isn't moving.
+  if (c.stallWarn) {
+    let msg = "";
+    if (arm.connected && (arm.error || arm.mode_name === "ERROR")) {
+      msg = `⚠ ${side.toUpperCase()} is in ERROR (faulted). Restart this arm `
+          + `(power-cycle / re-home), then Connect + Enable.`;
+    } else if (arm.stalled) {
+      msg = `⚠ Suspected crash — ${side} accepts commands but isn't moving `
+          + `(${(arm.stall_error || 0).toFixed(1)} off target). Restart this arm.`;
+    }
+    c.stallWarn.style.display = msg ? "block" : "none";
+    if (msg) c.stallWarn.textContent = msg;
+  }
 }
 
 let zInit = false;

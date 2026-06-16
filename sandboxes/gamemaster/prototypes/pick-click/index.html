@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pick &amp; Click</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef; --muted:#8a93a6;
+    --accent:#4f9dff; --ok:#36c46b; --warn:#f5a623; --err:#ff5462;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--bg); color:var(--txt); line-height:1.4; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; font-weight:700; }
+  .sub { color:var(--muted); font-size:12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; margin-bottom:14px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted); margin:0 0 10px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  input[type=text] { background:#0c0e12; border:1px solid var(--line); color:var(--txt);
+    padding:8px 10px; border-radius:6px; font:inherit; width:140px; }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt);
+    padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; min-height:40px; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { background:#171b22; border-color:#303642; color:#8f98aa; cursor:not-allowed; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.ok { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:800; }
+  button.stop { background:var(--warn); border-color:var(--warn); color:#2a1c00; font-weight:700; }
+  button.danger { background:#2a1216; border-color:#5a2630; color:#ff8a96; }
+  button.primary:disabled, button.ok:disabled, button.stop:disabled { background:#171b22; border-color:#303642; color:#8f98aa; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
+    border-radius:999px; font-size:12px; font-weight:600; background:#232733; color:var(--muted); }
+  .pill .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .pill.on { color:var(--ok); } .pill.on .dot { background:var(--ok); }
+  .pill.error { color:var(--err); } .pill.error .dot { background:var(--err); }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; padding:8px 14px; min-height:0; background:#13161c; color:#c6ccd8; }
+  .seg button.active { background:var(--accent); color:#fff; }
+  .seg button:not(:last-child) { border-right:1px solid var(--line); }
+  select { background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:6px; font:inherit; }
+  .hint { color:var(--muted); font-size:12px; margin-top:8px; }
+  .zwrap { display:flex; align-items:stretch; gap:14px; }
+  .zslider { writing-mode:vertical-lr; direction:rtl; width:42px; height:220px; accent-color:var(--accent); }
+  .zmeta { display:flex; flex-direction:column; justify-content:space-between; }
+  .zval { font-size:30px; font-weight:900; font-variant-numeric:tabular-nums; color:var(--accent); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; }
+  .stat { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .stat .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .stat .v { font-size:15px; font-variant-numeric:tabular-nums; margin-top:2px; }
+  .jogpad { display:grid; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(3,46px); gap:6px; justify-content:start; }
+  .jogpad button { min-height:0; font-weight:800; }
+  .jogpad .blank { visibility:hidden; }
+  .calibList { display:flex; flex-direction:column; gap:5px; margin:8px 0; }
+  .calibRow { display:flex; gap:10px; align-items:center; background:#13161c; border:1px solid var(--line);
+    border-radius:7px; padding:6px 9px; font-size:12px; font-variant-numeric:tabular-nums; }
+  .calibRow .gap { flex:1; }
+  .calibRow button { min-height:0; padding:3px 9px; font-size:12px; }
+  #log { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+    background:#0c0e12; border:1px solid var(--line); border-radius:8px;
+    padding:10px; height:110px; overflow-y:auto; white-space:pre-wrap; }
+  .log-err{color:var(--err);} .log-ok{color:var(--ok);} .log-info{color:var(--muted);}
+  #app { display:flex; flex-direction:column; height:100vh; height:100dvh; }
+  .topbar { flex:0 0 auto; display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+    padding:10px 18px; background:#0c0e12; border-bottom:1px solid var(--line); }
+  .topbar .title { font-weight:850; }
+  .topbar .clk { font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--accent); }
+  .playArea { flex:1 1 auto; display:flex; min-height:0; }
+  .videoPane { position:relative; background:#030405; min-height:0; min-width:0; }
+  .controlsPane { min-height:0; min-width:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px; }
+  @media (orientation: portrait) {
+    .playArea { flex-direction:column; }
+    .videoPane { flex:0 0 48%; }
+    .controlsPane { flex:1 1 auto; }
+  }
+  @media (orientation: landscape) {
+    .videoPane { flex:0 0 52%; order:1; border-left:1px solid var(--line); }
+    .controlsPane { flex:1 1 auto; order:0; }
+  }
+  .feedWrap { position:relative; overflow:hidden; width:100%; height:100%; background:#030405; cursor:crosshair; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  .calibBadge { position:absolute; top:10px; left:10px; z-index:2; padding:6px 11px; border-radius:7px;
+    font-size:13px; font-weight:700; background:rgba(12,14,18,.85); border:1px solid var(--line); }
+  .calibBadge.armed { border-color:var(--warn); color:var(--warn); }
+  .calibBadge.play { border-color:var(--accent); color:var(--accent); }
+  .mark { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border:2px solid #fff;
+    border-radius:50%; box-shadow:0 0 0 1px #000,0 0 6px rgba(0,0,0,.7); pointer-events:none; z-index:3; }
+  .mark::after { content:''; position:absolute; inset:4px; background:var(--accent); border-radius:50%; }
+  .mark[hidden] { display:none; }
+  .markLabel { position:absolute; transform:translate(11px,11px); background:rgba(12,14,18,.92);
+    border:1px solid var(--accent); color:var(--txt); font:700 12px/1.2 ui-monospace,Menlo,monospace;
+    padding:4px 7px; border-radius:5px; pointer-events:none; z-index:3; white-space:nowrap; }
+  .markLabel[hidden] { display:none; }
+</style>
+  <link rel="stylesheet" href="/theme.css" />
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <span class="title">Pick &amp; Click</span>
+    <span class="sub" id="sandboxSub">—</span>
+    <span id="connPill" class="pill"><span class="dot"></span><span id="connText">Disconnected</span></span>
+    <span style="flex:1"></span>
+    <span class="sub">Tool</span>
+    <span class="clk" id="poseReadout">X — Y — Z —</span>
+    <span class="seg" id="modeSeg">
+      <button type="button" data-mode="play" class="active">Play</button>
+      <button type="button" data-mode="calib">Calibrate</button>
+    </span>
+  </div>
+
+  <div id="crashBar" style="display:none; flex:0 0 auto; padding:10px 18px; background:#3a2410;
+       border-bottom:1px solid var(--warn); color:var(--warn); font-weight:800;"></div>
+
+  <div class="playArea">
+    <section class="videoPane">
+      <div class="feedWrap" id="feedWrap">
+        <img id="webcamFeed" alt="live game camera feed" />
+        <div class="calibBadge play" id="calibBadge">Play — click to move</div>
+        <div class="mark" id="mark" hidden></div>
+        <div class="markLabel" id="markLabel" hidden></div>
+      </div>
+    </section>
+
+    <div class="controlsPane">
+      <section class="panel">
+        <h2>Connection</h2>
+        <div class="row">
+          <span class="seg" id="linkSeg">
+            <button type="button" data-link="direct" class="active">Direct</button>
+            <button type="button" data-link="relay">Relay</button>
+          </span>
+          <input type="text" id="ip" value="192.168.1.6" />
+          <input type="text" id="relayHost" value="http://localhost:8000" style="width:190px;display:none" />
+          <select id="relaySide" style="display:none">
+            <option value="purple">Purple</option>
+            <option value="green">Green</option>
+          </select>
+          <button id="btnConnect" class="primary">Connect</button>
+          <button id="btnDisconnect" disabled>Disconnect</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnEnable" class="ok" disabled>Enable</button>
+          <button id="btnDisable" disabled>Disable</button>
+          <button id="btnClear" disabled>Clear Error</button>
+          <span style="flex:1"></span>
+          <button id="btnStop" class="stop" disabled>Stop</button>
+        </div>
+        <div class="hint" id="connHint">Drives this sandbox's cartesian arm. Connect → Enable, then click the camera.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Height — Z (up / down)</h2>
+        <div class="zwrap">
+          <input type="range" class="zslider" id="z" min="-150" max="230" step="1" value="40" disabled />
+          <div class="zmeta">
+            <div><div class="zval" id="zVal">40</div><span class="sub">mm</span></div>
+            <div class="hint" style="margin:0">Up/down only — <b>works without calibration</b>: Connect → Enable,
+              then drag (it holds the current X/Y). X/Y comes from clicking the camera once calibrated.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>End tool — air pump</h2>
+        <div class="row">
+          <button id="btnSuck" disabled>⭳ Vacuum</button>
+          <button id="btnBlow" disabled>⭱ Blow</button>
+          <button id="btnPumpOff" disabled>Off</button>
+          <span id="pumpPill" class="pill"><span class="dot"></span><span id="pumpText">off</span></span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Following speed</h2>
+        <div class="row">
+          <input type="range" id="speed" min="1" max="100" value="15" style="flex:1" disabled />
+          <span class="clk" id="speedVal" style="width:48px;text-align:right">15%</span>
+        </div>
+      </section>
+
+      <section class="panel" id="statePanel">
+        <h2>Live status</h2>
+        <div class="grid">
+          <div class="stat"><div class="k">Connection</div><div class="v" id="sConn">—</div></div>
+          <div class="stat"><div class="k">Robot mode</div><div class="v" id="sMode">—</div></div>
+          <div class="stat"><div class="k">Servos</div><div class="v" id="sServo">—</div></div>
+          <div class="stat"><div class="k">Error</div><div class="v" id="sErr">—</div></div>
+          <div class="stat"><div class="k">X</div><div class="v" id="sX">—</div></div>
+          <div class="stat"><div class="k">Y</div><div class="v" id="sY">—</div></div>
+          <div class="stat"><div class="k">Z</div><div class="v" id="sZ">—</div></div>
+        </div>
+      </section>
+
+      <section class="panel" id="calibPanel" hidden>
+        <h2>Calibrate pixel → workspace <span id="calibStatus" class="sub" style="text-transform:none;letter-spacing:0"></span></h2>
+        <div class="hint" style="margin-top:0">
+          Jog the tool to a clearly visible spot at your working height, press
+          <b>Capture</b>, then click that exact tool tip on the camera. Repeat for
+          ≥4 well-spread spots (corners work best). Saved in this browser.
+        </div>
+        <div class="row" style="margin:12px 0 6px">
+          <div class="jogpad">
+            <span class="blank"></span><button data-jog="y+">Y+</button><span class="blank"></span>
+            <button data-jog="x-">X−</button><button data-jog="capture" class="primary" title="Then click the camera">⌖</button><button data-jog="x+">X+</button>
+            <span class="blank"></span><button data-jog="y-">Y−</button><span class="blank"></span>
+          </div>
+          <div class="zmeta" style="justify-content:center">
+            <label class="sub">Jog step (mm)
+              <input type="text" id="jogStep" value="20" style="width:60px;margin-left:6px" />
+            </label>
+            <button id="btnCapture" class="primary" style="margin-top:8px">Capture point</button>
+          </div>
+        </div>
+        <div class="calibList" id="calibList"></div>
+        <div class="row">
+          <button id="btnClearCalib" class="danger">Clear calibration</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Log</h2>
+        <div id="log"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   Pick & Click — click the camera to set X/Y, slider for Z. Motion runs
+   on this sandbox's cartesian-xyz-test machine; a homography maps camera
+   pixels (native frame) to workspace X/Y, calibrated from captured pairs.
+   ===================================================================== */
+const SANDBOX = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] || 'gamemaster';
+const CART = `${location.origin}/s/${SANDBOX}/p/cartesian-xyz-test`;
+const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
+const CALIB_KEY = `pick-click-calib-${SANDBOX}`;
+const gid = id => document.getElementById(id);
+
+let connected = false, enabled = false;
+let workspace = { x:[-450,450], y:[-450,450], z:[-150,230], r:[-160,160] };
+let lastPose = null;                 // live [x,y,z,r] from the arm
+let target = { x:null, y:null, z:40, r:0 };
+let calibPts = [];                   // [{px,py,X,Y}]
+let H = null;                        // homography params [h0..h7] or null
+let mode = 'play';                   // 'play' | 'calib'
+let armedCapture = false;            // next camera click records a calib point
+let linkMode = 'direct';
+
+/* ---- tiny REST helper against the cartesian backend ---- */
+async function api(path, body, method) {
+  const opts = { method: method || (body ? 'POST' : 'GET') };
+  if (body) { opts.headers = { 'Content-Type':'application/json' }; opts.body = JSON.stringify(body); }
+  try {
+    const res = await fetch(CART + '/' + path.replace(/^\//, ''), opts);
+    const text = await res.text();
+    let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+    return data;
+  } catch (e) { log(`Network error on ${path}: ${e}`, 'log-err'); return { ok:false, error:String(e) }; }
+}
+function report(name, res) {
+  if (res && res.ok) log(`${name} ✓`, 'log-ok');
+  else log(`${name} ✗ ${(res && (res.error || res.errid)) || ''}`, 'log-err');
+  return res;
+}
+function log(msg, cls='log-info') {
+  const el = gid('log'), line = document.createElement('div');
+  line.className = cls; line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(line); el.scrollTop = el.scrollHeight;
+}
+
+/* ---- webcam + pixel mapping ---- */
+function startWebcam() { gid('webcamFeed').src = `${WEBCAM}?t=${Date.now()}`; }
+// Pointer event -> pixel in the camera's NATIVE frame (handles object-fit:contain).
+function pixelCoords(ev) {
+  const img = gid('webcamFeed'), rect = img.getBoundingClientRect();
+  const natW = img.naturalWidth, natH = img.naturalHeight;
+  if (!natW || !natH || !rect.width || !rect.height) return null;
+  const scale = Math.min(rect.width / natW, rect.height / natH);
+  const offX = (rect.width - natW * scale) / 2, offY = (rect.height - natH * scale) / 2;
+  const x = (ev.clientX - rect.left - offX) / scale;
+  const y = (ev.clientY - rect.top - offY) / scale;
+  const inside = x >= 0 && y >= 0 && x <= natW && y <= natH;
+  return { x, y, inside };
+}
+function placeMark(ev, text) {
+  const wrap = gid('feedWrap').getBoundingClientRect();
+  const px = ev.clientX - wrap.left, py = ev.clientY - wrap.top;
+  const m = gid('mark'), l = gid('markLabel');
+  m.style.left = l.style.left = px + 'px';
+  m.style.top = l.style.top = py + 'px';
+  m.hidden = false; l.hidden = false; l.textContent = text;
+}
+
+/* ---- homography solve (least-squares DLT via normal equations) ---- */
+function solveLinear(A, b, n) {           // Gaussian elimination, n x n
+  for (let i = 0; i < n; i++) {
+    let p = i;
+    for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[p][i])) p = r;
+    if (Math.abs(A[p][i]) < 1e-12) return null;
+    [A[i], A[p]] = [A[p], A[i]]; [b[i], b[p]] = [b[p], b[i]];
+    for (let r = 0; r < n; r++) {
+      if (r === i) continue;
+      const f = A[r][i] / A[i][i];
+      for (let c = i; c < n; c++) A[r][c] -= f * A[i][c];
+      b[r] -= f * b[i];
+    }
+  }
+  return A.map((row, i) => b[i] / row[i]);
+}
+function computeHomography(pts) {
+  if (pts.length < 4) return null;
+  // Normal equations N (8x8), c (8) from rows of the DLT matrix.
+  const N = Array.from({ length:8 }, () => new Array(8).fill(0));
+  const c = new Array(8).fill(0);
+  const addRow = (row, rhs) => {
+    for (let i = 0; i < 8; i++) { c[i] += row[i] * rhs; for (let j = 0; j < 8; j++) N[i][j] += row[i] * row[j]; }
+  };
+  for (const p of pts) {
+    addRow([p.px, p.py, 1, 0, 0, 0, -p.px * p.X, -p.py * p.X], p.X);
+    addRow([0, 0, 0, p.px, p.py, 1, -p.px * p.Y, -p.py * p.Y], p.Y);
+  }
+  return solveLinear(N, c, 8);
+}
+function applyH(h, px, py) {
+  const den = h[6] * px + h[7] * py + 1;
+  if (Math.abs(den) < 1e-9) return null;
+  return { x: (h[0] * px + h[1] * py + h[2]) / den, y: (h[3] * px + h[4] * py + h[5]) / den };
+}
+function rmsError(h, pts) {
+  if (!h || !pts.length) return null;
+  let s = 0;
+  for (const p of pts) { const m = applyH(h, p.px, p.py); if (!m) return null; s += (m.x - p.X) ** 2 + (m.y - p.Y) ** 2; }
+  return Math.sqrt(s / pts.length);
+}
+
+/* ---- calibration storage + UI ---- */
+function loadCalib() {
+  try { const a = JSON.parse(localStorage.getItem(CALIB_KEY) || '[]'); calibPts = Array.isArray(a) ? a : []; }
+  catch (_) { calibPts = []; }
+}
+function saveCalib() { localStorage.setItem(CALIB_KEY, JSON.stringify(calibPts)); }
+function recompute() { H = computeHomography(calibPts); renderCalib(); }
+function renderCalib() {
+  const list = gid('calibList');
+  list.innerHTML = calibPts.length ? '' : '<div class="hint" style="margin:0">No points yet.</div>';
+  calibPts.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'calibRow';
+    row.innerHTML = `<span>#${i + 1}</span>
+      <span>px ${Math.round(p.px)}, ${Math.round(p.py)}</span>
+      <span>→ X ${p.X.toFixed(0)} Y ${p.Y.toFixed(0)}</span>
+      <span class="gap"></span><button class="danger" data-del="${i}">✕</button>`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    calibPts.splice(+b.dataset.del, 1); saveCalib(); recompute();
+  });
+  const err = rmsError(H, calibPts);
+  const errTxt = (err == null) ? '' : ` · ±${err.toFixed(0)} mm`;
+  const status = H ? `calibrated · ${calibPts.length} pts${errTxt}`
+    : `need ${Math.max(0, 4 - calibPts.length)} more point(s)`;
+  gid('calibStatus').textContent = status;
+}
+
+/* ---- motion ---- */
+function clampZ(v) { return Math.max(workspace.z[0], Math.min(workspace.z[1], v)); }
+async function sendMove(x, y, z) {
+  if (!connected) { log('Connect + Enable first.', 'log-err'); return; }
+  target.x = x; target.y = y; target.z = z;
+  const res = await api('/api/move', { x, y, z });
+  if (!res.ok) log(`move ✗ ${res.error || res.errid || ''}`, 'log-err');
+}
+// Click on the feed: in play mode -> move there; in calib mode (armed) -> record a point.
+function onFeedClick(ev) {
+  const c = pixelCoords(ev);
+  if (!c) { log('Camera frame not loaded yet.', 'log-err'); return; }
+  if (mode === 'calib' && armedCapture) {
+    if (!lastPose) { log('No arm pose — connect first.', 'log-err'); return; }
+    calibPts.push({ px: c.x, py: c.y, X: lastPose[0], Y: lastPose[1] });
+    saveCalib(); recompute();
+    armedCapture = false; setBadge();
+    placeMark(ev, `pt#${calibPts.length} → X${lastPose[0].toFixed(0)} Y${lastPose[1].toFixed(0)}`);
+    log(`Captured point #${calibPts.length}`, 'log-ok');
+    return;
+  }
+  if (mode === 'calib') { log('Press Capture first, then click the tool tip.', 'log-info'); return; }
+  // play mode
+  if (!H) { log('Not calibrated — switch to Calibrate and capture ≥4 points.', 'log-err'); placeMark(ev, 'no calibration'); return; }
+  const w = applyH(H, c.x, c.y);
+  if (!w) { log('Mapping failed for that point.', 'log-err'); return; }
+  placeMark(ev, `X ${w.x.toFixed(0)}, Y ${w.y.toFixed(0)}`);
+  sendMove(w.x, w.y, target.z);
+}
+
+function jog(dir) {
+  if (!connected) { log('Connect + Enable first.', 'log-err'); return; }
+  const base = (target.x != null) ? target : (lastPose ? { x:lastPose[0], y:lastPose[1], z:lastPose[2] } : null);
+  if (!base) { log('No pose yet.', 'log-err'); return; }
+  const step = parseFloat(gid('jogStep').value) || 20;
+  let { x, y } = base; const z = (target.x != null) ? target.z : base.z;
+  if (dir === 'x+') x += step; else if (dir === 'x-') x -= step;
+  else if (dir === 'y+') y += step; else if (dir === 'y-') y -= step;
+  sendMove(x, y, z);
+}
+
+/* ---- status stream ---- */
+function setConnUI(on) {
+  connected = on;
+  ['btnDisconnect','btnEnable','btnDisable','btnClear','btnStop','z','speed','btnSuck','btnBlow','btnPumpOff']
+    .forEach(id => gid(id).disabled = !on);
+  gid('btnConnect').disabled = on;
+}
+function applyStatus(s) {
+  const cp = gid('connPill');
+  cp.className = 'pill ' + (s.connected ? 'on' : (s.error ? 'error' : ''));
+  gid('connText').textContent = s.connected ? 'Connected' : 'Disconnected';
+  if (s.connected !== connected) setConnUI(s.connected);
+  enabled = !!s.enabled;
+
+  // ---- live status + crash visibility (robots fault often) ----
+  const faulted = !!(s.connected && (s.error || s.mode_name === 'ERROR' || s.servo_error));
+  gid('sConn').textContent = s.connected ? 'online' : 'offline';
+  gid('sConn').style.color = s.connected ? 'var(--ok)' : 'var(--muted)';
+  gid('sMode').textContent = s.mode_name || (s.enabled ? 'enabled' : '—');
+  gid('sMode').style.color = faulted ? 'var(--err)' : 'var(--txt)';
+  gid('sServo').textContent = s.servo_active ? (s.control_mode || 'on') : (s.enabled ? 'idle' : 'off');
+  gid('sServo').style.color = s.servo_active ? 'var(--ok)' : 'var(--muted)';
+  gid('sErr').textContent = faulted ? 'FAULT' : 'none';
+  gid('sErr').style.color = faulted ? 'var(--err)' : 'var(--muted)';
+  const cb = gid('crashBar');
+  if (faulted) {
+    cb.style.display = 'block';
+    cb.textContent = s.servo_error
+      ? `⚠ Follower error — ${s.servo_error}. Stop, Clear Error, then Enable; if it persists, restart the arm.`
+      : `⚠ Robot faulted (ERROR) — it won't move. Try Clear Error + Enable, or power-cycle / restart the arm.`;
+  } else cb.style.display = 'none';
+
+  if (Array.isArray(s.pose)) {
+    lastPose = s.pose;
+    gid('sX').textContent = s.pose[0].toFixed(1);
+    gid('sY').textContent = s.pose[1].toFixed(1);
+    gid('sZ').textContent = s.pose[2].toFixed(1);
+    gid('poseReadout').textContent = `X ${s.pose[0].toFixed(0)} Y ${s.pose[1].toFixed(0)} Z ${s.pose[2].toFixed(0)}`;
+    // Seed target + Z slider from the live pose once, before the first click.
+    if (target.x == null && s.connected) {
+      target.x = s.pose[0]; target.y = s.pose[1]; target.z = clampZ(s.pose[2]);
+      gid('z').value = target.z; gid('zVal').textContent = Math.round(target.z);
+    }
+  }
+  const pm = s.pump_mode || 'off';
+  gid('pumpText').textContent = pm;
+  gid('pumpPill').className = 'pill ' + (pm === 'off' ? '' : (pm === 'conflict' ? 'error' : 'on'));
+  gid('btnSuck').className = pm === 'suck' ? 'ok' : '';
+  gid('btnBlow').className = pm === 'blow' ? 'stop' : '';
+  if (typeof s.speed_ratio === 'number' && document.activeElement !== gid('speed')) {
+    gid('speed').value = s.speed_ratio; gid('speedVal').textContent = s.speed_ratio + '%';
+  }
+}
+
+/* ---- link mode + identity (player copies are relay-locked) ---- */
+function setLinkMode(m) {
+  linkMode = m;
+  document.querySelectorAll('#linkSeg button').forEach(b => b.classList.toggle('active', b.dataset.link === m));
+  const relay = m === 'relay';
+  gid('ip').style.display = relay ? 'none' : '';
+  gid('relayHost').style.display = relay ? '' : 'none';
+  gid('relaySide').style.display = relay ? '' : 'none';
+}
+function applyIdentity(ident) {
+  if (!ident || !ident.is_player) return;
+  setLinkMode('relay');
+  gid('linkSeg').style.display = 'none';
+  gid('relaySide').value = ident.side;
+  gid('relaySide').disabled = true;
+  gid('connHint').textContent = `You are the ${ident.side.toUpperCase()} player — drives the ${ident.side} arm through the relay.`;
+}
+
+/* ---- mode toggle ---- */
+function setBadge() {
+  const b = gid('calibBadge');
+  if (mode === 'calib') {
+    b.className = 'calibBadge' + (armedCapture ? ' armed' : '');
+    b.textContent = armedCapture ? 'Click the tool tip on the camera' : 'Calibrate — Capture, then click';
+  } else { b.className = 'calibBadge play'; b.textContent = 'Play — click to move'; }
+}
+function setMode(m) {
+  mode = m; armedCapture = false;
+  document.querySelectorAll('#modeSeg button').forEach(x => x.classList.toggle('active', x.dataset.mode === m));
+  gid('calibPanel').hidden = m !== 'calib';
+  setBadge();
+}
+
+/* ---- wiring ---- */
+function wire() {
+  document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  document.querySelectorAll('#linkSeg button').forEach(b => b.onclick = () => setLinkMode(b.dataset.link));
+  gid('feedWrap').addEventListener('click', onFeedClick);
+
+  gid('btnConnect').onclick = async () => {
+    if (linkMode === 'relay') {
+      report('connect (relay)', await api('/api/connect', { mode:'relay', host: gid('relayHost').value.trim(), side: gid('relaySide').value }));
+    } else {
+      report('connect', await api('/api/connect', { mode:'direct', ip: gid('ip').value.trim() }));
+    }
+  };
+  gid('btnDisconnect').onclick = async () => report('disconnect', await api('/api/disconnect', {}));
+  gid('btnEnable').onclick = async () => report('enable', await api('/api/enable', {}));
+  gid('btnDisable').onclick = async () => report('disable', await api('/api/disable', {}));
+  gid('btnClear').onclick = async () => { if ((await api('/api/clear_error', {})).ok) report('enable', await api('/api/enable', {})); };
+  gid('btnStop').onclick = async () => report('stop', await api('/api/stop', {}));
+  gid('btnSuck').onclick = async () => report('vacuum', await api('/api/pump', { mode:'suck' }));
+  gid('btnBlow').onclick = async () => report('blow', await api('/api/pump', { mode:'blow' }));
+  gid('btnPumpOff').onclick = async () => report('pump off', await api('/api/pump', { mode:'off' }));
+
+  const z = gid('z');
+  let zTimer = null;
+  z.addEventListener('input', () => {
+    target.z = clampZ(parseFloat(z.value));
+    gid('zVal').textContent = Math.round(target.z);
+    clearTimeout(zTimer);
+    zTimer = setTimeout(() => {
+      const x = target.x != null ? target.x : (lastPose ? lastPose[0] : null);
+      const y = target.y != null ? target.y : (lastPose ? lastPose[1] : null);
+      if (x != null && y != null) sendMove(x, y, target.z);
+    }, 80);
+  });
+
+  const speed = gid('speed');
+  let sTimer = null;
+  speed.addEventListener('input', () => {
+    gid('speedVal').textContent = speed.value + '%';
+    clearTimeout(sTimer);
+    sTimer = setTimeout(async () => report('speed', await api('/api/speed', { ratio: parseInt(speed.value) })), 150);
+  });
+
+  gid('btnCapture').onclick = () => { armedCapture = true; setBadge(); log('Armed — click the tool tip on the camera.', 'log-info'); };
+  document.querySelectorAll('[data-jog]').forEach(b => b.onclick = () => {
+    if (b.dataset.jog === 'capture') { armedCapture = true; setBadge(); log('Armed — click the tool tip on the camera.', 'log-info'); }
+    else jog(b.dataset.jog);
+  });
+  gid('btnClearCalib').onclick = () => { calibPts = []; saveCalib(); recompute(); log('Calibration cleared.', 'log-info'); };
+}
+
+async function init() {
+  gid('sandboxSub').textContent = `${SANDBOX} arm`;
+  wire();
+  loadCalib();
+  recompute();
+  setMode('play');
+  setConnUI(false);
+  startWebcam();
+  gid('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
+
+  const cfg = await api('/api/config');
+  if (cfg.workspace) {
+    workspace = cfg.workspace;
+    gid('z').min = workspace.z[0]; gid('z').max = workspace.z[1];
+  }
+  if (cfg.default_ip) gid('ip').value = cfg.default_ip;
+  if (cfg.relay_host_default) gid('relayHost').value = cfg.relay_host_default;
+  applyIdentity(cfg.identity);
+
+  applyStatus(await api('/api/status'));
+  const es = new EventSource(CART + '/api/events');
+  es.onmessage = e => { try { applyStatus(JSON.parse(e.data)); } catch (_) {} };
+  log('Ready. Connect → Enable, calibrate once, then click to place.', 'log-info');
+}
+init();
+</script>
+</body>
+</html>

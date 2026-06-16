@@ -36,7 +36,10 @@ MANIFEST = {
     "description": "Two-player pick-and-place game: each player times their own "
                    "run, the gamemaster marks finishes, all logged to CSV.",
     "default_page": "game",
-    "pages": [{"path": "game", "label": "Game screen"}],
+    "pages": [
+        {"path": "game", "label": "Game screen"},
+        {"path": "build", "label": "Build / calibrate"},
+    ],
 }
 bp = Blueprint("pickup_game", __name__)
 
@@ -137,6 +140,13 @@ def _public_state():
 @bp.route("/game")
 def game():
     resp = send_from_directory(HERE, "game.html")
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
+
+@bp.route("/build")
+def build():
+    resp = send_from_directory(HERE, "build.html")
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 

@@ -80,6 +80,15 @@ ROBOT_MODES = {
     9: "ERROR", 10: "PAUSE", 11: "JOG",
 }
 ENABLED_MODES = {5, 6, 7, 8, 10, 11}
+# Modes in which the arm is NOT following our ServoJ/ServoP stream: it is being
+# hand-dragged via the unlock button (BACKDRIVE), disabled, faulted, or still
+# starting up. While in these the follower must slave its setpoint to the live
+# position and stop streaming, so re-locking the arm doesn't snap it back to a
+# stale setpoint. (Excludes 5 ENABLED-idle and 7 RUNNING — our normal streaming.)
+NO_SERVO_MODES = {1, 2, 3, 4, 6, 9}
+# How many consecutive feedback ticks in a NO_SERVO mode before we conclude the
+# arm really left servo-follow (debounce against one-frame glitches).
+NO_SERVO_TRIP = 3
 
 
 class DobotError(Exception):
@@ -108,6 +117,18 @@ def parse_feedback(packet):
         "joints": [round(v, 3) for v in q_actual[:4]],
         "pose": [round(v, 3) for v in tool[:4]],  # x, y, z, r
     }
+
+
+# ---- stall / crash detection ----------------------------------------------
+# Signature of a wedged/crashed MG400 (observed live): the controller stays
+# connected + enabled and ACKS every ServoJ/ServoP with ErrorID 0, but never
+# executes them — robot_mode stays idle and the joints don't move. We detect it
+# by watching the follower: if it is commanding the arm somewhere it isn't, and
+# the arm hasn't physically moved for a grace period, we flag a suspected crash.
+STALL_GRACE_SECS = 1.5    # commanded-but-static this long → suspect crash
+STALL_MOVE_EPS = 0.2      # deg; joint change above this counts as "the arm moved"
+STALL_ERR_JOINT = 3.0     # deg; follower-vs-actual gap that means "told to move"
+STALL_ERR_CART = 6.0      # mm; same idea for the cartesian follower
 
 
 class DobotMG400:
@@ -140,6 +161,7 @@ class DobotMG400:
         self._target = None        # desired [j1..j4] OR [x,y,z,r]
         self._setpoint = None      # current streamed setpoint
         self._vel = [0.0, 0.0, 0.0, 0.0]   # current setpoint velocity per axis
+        self._last_motion_ts = 0.0         # last time the arm physically moved (stall detection)
 
         # Joint follower caps (conservative defaults from the joint prototype).
         self._max_vel = 60.0       # deg/s
@@ -171,6 +193,8 @@ class DobotMG400:
             "servo_active": False,
             "servo_error": None,
             "control_mode": None,   # which follower is running: joint | cartesian | None
+            "stalled": False,       # suspected crash: commanded to move but not moving
+            "stall_error": 0.0,     # follower-vs-actual gap (deg or mm) behind `stalled`
         }
 
     def get_state(self):
@@ -238,6 +262,14 @@ class DobotMG400:
 
     def close(self):
         self.stop_servo()
+        # Graceful halt: stop any motion the controller still has queued/streaming
+        # BEFORE we drop the sockets, so the arm isn't left mid-move to lurch from
+        # when the next link opens. Best-effort — the socket may already be gone.
+        try:
+            if self._dashboard is not None:
+                self.stop_robot()
+        except (DobotError, OSError):
+            pass
         self._running = False
         for sock in (self._feedback, self._motion, self._dashboard):
             if sock is not None:
@@ -305,6 +337,11 @@ class DobotMG400:
 
     def reset(self):
         return self._dash("ResetRobot()")
+
+    def stop_robot(self):
+        """Halt any queued/streamed motion on the controller (StopRobot). Used for
+        a graceful stop before closing sockets so the arm isn't left mid-ServoJ."""
+        return self._dash("StopRobot()", raise_on_error=False)
 
     def speed_factor(self, ratio):
         ratio = max(1, min(100, int(ratio)))
@@ -420,6 +457,7 @@ class DobotMG400:
             self._target[2] = float(j3)
             if j4 is not None:
                 self._target[3] = float(j4)
+        self._last_motion_ts = time.time()   # give a fresh move its grace window
 
     def set_target_pose(self, x, y, z, r=None):
         """Set the desired tool pose the cartesian follower slews toward. R is held
@@ -432,6 +470,7 @@ class DobotMG400:
             self._target[2] = float(z)
             if r is not None:
                 self._target[3] = float(r)
+        self._last_motion_ts = time.time()   # give a fresh move its grace window
 
     def hold(self):
         """Smooth stop: aim the target at the follower's natural braking point so
@@ -480,6 +519,7 @@ class DobotMG400:
             self._setpoint = list(seed)
             self._target = list(seed)
             self._vel = [0.0, 0.0, 0.0, 0.0]
+        self._last_motion_ts = time.time()
         self._servo_running = True
         with self._state_lock:
             self._state["servo_active"] = True
@@ -501,6 +541,8 @@ class DobotMG400:
         with self._state_lock:
             self._state["servo_active"] = False
             self._state["control_mode"] = None
+            self._state["stalled"] = False
+            self._state["stall_error"] = 0.0
 
     def _servo_loop(self):
         # ServoJ minimum cycle is ~80 ms (12.5 Hz); ServoP is ~30 ms (≤33 Hz).
@@ -510,6 +552,7 @@ class DobotMG400:
         t_param = 0.10    # ServoJ point duration; slightly > interval for overlap
         cmd = "ServoP" if cartesian else "ServoJ"
         consecutive_errors = 0
+        no_servo_count = 0
         next_t = time.monotonic()
         while self._servo_running:
             with self._servo_lock:
@@ -520,6 +563,38 @@ class DobotMG400:
             if target is None or setpoint is None:
                 time.sleep(interval)
                 continue
+            # Drag/unlock guard. If the arm leaves servo-follow (unlock button →
+            # BACKDRIVE, disabled, or faulted) it is NOT consuming our stream. We
+            # must NOT keep firing ServoJ/ServoP at it — continuing to do so does
+            # nothing (the points are ACKed but ignored) and, across unlock/lock
+            # cycles, wedges the controller. So: re-seed to the live position (so a
+            # one-frame glitch can't snap it), and if it stays out of servo mode,
+            # STOP the follower entirely. A fresh Enable re-arms a clean session.
+            st = self.get_state()
+            if st.get("robot_mode") in NO_SERVO_MODES:
+                if st.get("feedback_ok"):
+                    actual = list(st["pose"] if cartesian else st["joints"])
+                    with self._servo_lock:
+                        self._setpoint = list(actual)
+                        self._target = list(actual)
+                        self._vel = [0.0, 0.0, 0.0, 0.0]
+                no_servo_count += 1
+                consecutive_errors = 0
+                if no_servo_count >= NO_SERVO_TRIP:
+                    with self._state_lock:
+                        self._state["servo_error"] = (
+                            "arm left servo mode (unlocked / disabled / faulted) — "
+                            "press Enable to resume control"
+                        )
+                    break   # stop the follower; an explicit Enable restarts it
+                next_t += interval
+                pause = next_t - time.monotonic()
+                if pause > 0:
+                    time.sleep(pause)
+                else:
+                    next_t = time.monotonic()
+                continue
+            no_servo_count = 0
             dt = interval
             # Acceleration-limited slew: ramp velocity up toward the cap, then brake
             # early enough (v <= sqrt(2*a*dist)) to arrive at the target with ~zero
@@ -632,7 +707,15 @@ class DobotMG400:
 
     def _apply_feedback(self, parsed):
         mode = parsed["robot_mode"]
+        now = time.time()
+        # Snapshot the follower's intent first (avoid nesting the servo lock inside
+        # the state lock — the servo loop never holds both at once).
+        with self._servo_lock:
+            running = self._servo_running
+            ctrl = self._control_mode
+            setpoint = list(self._setpoint) if self._setpoint is not None else None
         with self._state_lock:
+            prev_joints = self._state["joints"]
             self._state["robot_mode"] = mode
             self._state["mode_name"] = ROBOT_MODES.get(mode, f"UNKNOWN({mode})")
             self._state["enabled"] = mode in ENABLED_MODES
@@ -641,5 +724,21 @@ class DobotMG400:
             self._state["pose"] = parsed["pose"]
             self._state["digital_in"] = parsed["digital_in"]
             self._state["digital_out"] = parsed["digital_out"]
-            self._state["last_feedback"] = time.time()
+            self._state["last_feedback"] = now
             self._state["feedback_ok"] = True
+            # --- suspected-crash detection (see notes near the constants) ---
+            if prev_joints and max(abs(a - b) for a, b in zip(parsed["joints"], prev_joints)) > STALL_MOVE_EPS:
+                self._last_motion_ts = now          # the arm physically moved
+            err = 0.0
+            stalled = False
+            if running and ctrl and setpoint is not None:
+                if ctrl == "cartesian":
+                    err = max(abs(setpoint[i] - parsed["pose"][i]) for i in range(3))
+                    thr = STALL_ERR_CART
+                else:
+                    err = max(abs(s - a) for s, a in zip(setpoint, parsed["joints"]))
+                    thr = STALL_ERR_JOINT
+                # Follower is commanding motion the arm isn't executing for too long.
+                stalled = (err > thr) and (now - self._last_motion_ts > STALL_GRACE_SECS)
+            self._state["stalled"] = stalled
+            self._state["stall_error"] = round(err, 2)

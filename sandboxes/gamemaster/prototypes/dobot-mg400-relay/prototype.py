@@ -142,6 +142,9 @@ BLOW_DO_INDEX = 1
 # Per-side arm connections, guarded by _arm_locks[side] while reconnecting.
 _robots = {s: None for s in SIDES}
 _arm_locks = {s: threading.Lock() for s in SIDES}
+# Last link params each side connected with, so /api/reset can rebuild the driver
+# (fresh sockets) without the operator re-typing the IP.
+_last_link = {s: None for s in SIDES}
 # Sampled state (live feedback + lease seconds tick down), so the SSE stream
 # re-snapshots on a short interval rather than on a bump. See prototypes/live.py.
 _live = live.LiveState()
@@ -523,6 +526,9 @@ def _arm_dict(side):
         "pose": raw["pose"],
         "servo_active": raw["servo_active"],
         "servo_error": raw["servo_error"],
+        "error": raw.get("error", False),
+        "stalled": raw.get("stalled", False),
+        "stall_error": raw.get("stall_error", 0.0),
         "pump_mode": _pump_mode(raw.get("digital_out", 0)),
         "control_mode": raw.get("control_mode"),
         "target": None if robot is None else robot.get_target(),
@@ -650,6 +656,7 @@ def connect():
             return _fail(f"Could not connect to {ip} via {local_ip}: {e}")
         _robots[side] = robot
     link["iface"] = robot.iface  # the auto-detected (or given) interface
+    _last_link[side] = dict(link)
     _log_command("robot", side, "connect", link, ok=True)
     _live.bump()
     return _ok(side=side, **link)
