@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pick &amp; Place v2</title>
+<link rel="stylesheet" href="/theme.css" />
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef; --muted:#8a93a6;
+    --accent:#4f9dff; --ok:#36c46b; --warn:#f5a623; --err:#ff5462; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  #app { display:flex; flex-direction:column; height:100vh; height:100dvh; }
+  .topbar { flex:0 0 auto; display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 16px; background:#0c0e12; border-bottom:1px solid var(--line); }
+  .topbar .title { font-weight:850; }
+  .sub { color:var(--muted); font-size:12px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:700; background:#232733; color:var(--muted); }
+  .pill.on { color:var(--ok); } .pill.off { color:var(--muted); } .pill.error { color:var(--err); }
+  .crashBar { display:none; padding:9px 16px; background:#3a2410; border-bottom:1px solid var(--warn); color:var(--warn); font-weight:800; }
+  .play { flex:1 1 auto; display:flex; min-height:0; }
+  .videoPane { position:relative; background:#030405; flex:0 0 56%; min-width:0; border-right:1px solid var(--line); }
+  @media (orientation:portrait){ .play{ flex-direction:column; } .videoPane{ flex:0 0 46%; border-right:none; border-bottom:1px solid var(--line);} }
+  .feedWrap { position:relative; overflow:hidden; width:100%; height:100%; background:#030405; cursor:crosshair; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  .ctrls { flex:1 1 auto; min-width:0; overflow-y:auto; padding:14px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt); padding:8px 12px; border-radius:6px; font:inherit; cursor:pointer; min-height:40px; }
+  button:hover:not(:disabled){ border-color:var(--accent); } button:disabled{ opacity:.4; cursor:not-allowed; }
+  button.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.ok{ background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:800; }
+  button.warn{ background:var(--warn); border-color:var(--warn); color:#2a1c00; font-weight:700; }
+  button.stop{ background:var(--warn); border-color:var(--warn); color:#2a1c00; font-weight:700; }
+  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  input[type=text],input[type=number]{ background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:6px; font:inherit; width:90px; }
+  select{ background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:6px; font:inherit; }
+  .seg{ display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .seg button{ border:none; border-radius:0; min-height:0; padding:8px 14px; background:#13161c; color:#c6ccd8; }
+  .seg button.active{ background:var(--accent); color:#fff; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; }
+  .stat{ background:#13161c; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .stat .k{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .stat .v{ font-size:15px; font-variant-numeric:tabular-nums; margin-top:2px; }
+  .hint{ color:var(--muted); font-size:12px; margin-top:6px; }
+  .yes{ color:var(--ok); } .no{ color:var(--muted); }
+  #log{ font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:110px; overflow:auto; background:#0c0e12; border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .mark{ position:absolute; width:18px; height:18px; margin:-9px 0 0 -9px; pointer-events:none; z-index:3; }
+  .mark::before,.mark::after{ content:''; position:absolute; background:currentColor; }
+  .mark::before{ left:8px; top:0; width:2px; height:18px; } .mark::after{ top:8px; left:0; height:2px; width:18px; }
+  .mark.pin{ color:#b86bff; opacity:.85; } .mark.click{ color:var(--accent); }
+  .lbl{ position:absolute; transform:translate(10px,-9px); font:700 11px/1.35 ui-monospace,Menlo,monospace; background:rgba(12,14,18,.88); border:1px solid var(--line); padding:3px 5px; border-radius:4px; pointer-events:none; z-index:3; white-space:nowrap; }
+  .zval{ font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; color:var(--accent); }
+  /* ---- game layer ---- */
+  .clk{ font-size:20px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .gname{ font-weight:850; }
+  #login{ position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:18px; background:var(--bg); }
+  #login[hidden]{ display:none; }
+  .namePanel{ width:min(100%,460px); display:grid; gap:14px; padding:24px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+  .namePanel h1{ margin:0; font-size:22px; }
+  .namePanel label{ display:grid; gap:8px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; }
+  .namePanel input[type=text]{ width:100%; min-height:50px; font:800 20px/1.2 ui-monospace,Menlo,monospace; }
+  .namePanel button{ min-height:52px; font-size:17px; font-weight:800; }
+  .lockBar{ display:none; padding:9px 16px; background:#10243a; border-bottom:1px solid var(--accent); color:#9cc7ff; font-weight:700; font-size:13px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== name gate (refresh prompts the next player) ===================== -->
+<section id="login">
+  <form id="namePanel" class="namePanel" autocomplete="off">
+    <h1>Pick &amp; Place v2 — <span id="loginTeam"></span></h1>
+    <label for="nameInput">Player name
+      <input id="nameInput" type="text" list="nameOptions" maxlength="32" autocomplete="off" required />
+    </label>
+    <datalist id="nameOptions"></datalist>
+    <button type="submit" class="primary">Continue</button>
+    <span id="nameStatus" class="hint" style="margin:0">Enter your name to begin.</span>
+  </form>
+</section>
+
+<div id="app">
+  <div class="topbar">
+    <span class="title">Pick &amp; Place v2</span>
+    <span class="gname" id="gPlayer">—</span>
+    <span class="clk" id="gClock">--</span>
+    <span class="sub" id="gStatus"></span>
+    <span class="sub" id="calibInd">no calibration loaded</span>
+    <span style="flex:1"></span>
+    <span id="connPill" class="pill off"><span id="connText">Disconnected</span></span>
+    <span class="sub" id="poseInd">pose —</span>
+  </div>
+  <div class="lockBar" id="lockBar"></div>
+  <div class="crashBar" id="crashBar"></div>
+
+  <div class="play">
+    <section class="videoPane">
+      <div class="feedWrap" id="feedWrap">
+        <img id="webcamFeed" alt="live camera feed" />
+        <!-- corner pins + click mark injected here -->
+      </div>
+    </section>
+    <div class="ctrls">
+      <div class="panel">
+        <h2>1 · Calibration (corner pins)</h2>
+        <div class="row">
+          <input type="file" id="csvFile" accept=".csv,text/csv" />
+          <button id="btnClearCalib">Clear</button>
+        </div>
+        <div class="hint" id="calibStatus">Load a calibration CSV (marker, pixel_x, pixel_y, robot_x, robot_y, robot_z).</div>
+      </div>
+
+      <div class="panel">
+        <h2>2 · Arm</h2>
+        <div class="row">
+          <span class="seg" id="linkSeg">
+            <button type="button" data-link="direct" class="active">Direct</button>
+            <button type="button" data-link="relay">Relay</button>
+          </span>
+          <input type="text" id="ip" value="192.168.1.6" />
+          <input type="text" id="relayHost" value="http://localhost:8000" style="width:170px;display:none" />
+          <select id="relaySide" style="display:none"><option value="purple">Purple</option><option value="green">Green</option></select>
+          <button id="btnConnect" class="primary">Connect</button>
+          <button id="btnDisconnect" disabled>Disconnect</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnEnable" class="ok" disabled>Enable</button>
+          <button id="btnClear" disabled>Clear Error</button>
+          <span style="flex:1"></span>
+          <button id="btnStop" class="stop" disabled>Stop</button>
+        </div>
+        <div class="hint" id="connHint">Connect → Enable, load calibration, then click the camera.</div>
+      </div>
+
+      <div class="panel">
+        <h2>3 · Heights</h2>
+        <div class="row">
+          <label class="sub">Move offset
+            <input type="number" id="moveOffset" value="60" step="5" style="width:70px;margin-left:6px" /> mm above pickup
+          </label>
+        </div>
+        <div class="row">
+          <label class="sub">Pickup offset
+            <input type="number" id="pickupOffset" value="0" step="1" style="width:70px;margin-left:6px" /> mm (+ up / − down)
+          </label>
+        </div>
+        <div class="grid" style="margin-top:10px">
+          <div class="stat"><div class="k">Image px (x, y)</div><div class="v" id="imgXY">—</div></div>
+          <div class="stat"><div class="k">Robot X / Y</div><div class="v" id="tgtXY">—</div></div>
+          <div class="stat"><div class="k">Pickup Z (calibrated)</div><div class="v" id="pickZ">—</div></div>
+          <div class="stat"><div class="k">Grab Z (offset)</div><div class="v" id="grabZ">—</div></div>
+          <div class="stat"><div class="k">Move Z</div><div class="v" id="moveZ">—</div></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="sub"><input type="checkbox" id="autoMove" style="vertical-align:middle"> Auto move to pointer on click</label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnMove" class="primary" disabled>▶ Move to pointer</button>
+          <button id="btnDescend" disabled>⭳ Descend to pickup</button>
+          <button id="btnLift" disabled>⭱ Lift to move height</button>
+        </div>
+        <div class="hint">Click the camera to drop a pointer and read the interpolated robot X/Y/Z. With <b>Auto move</b> on, a click also sends the tool there at move height; with it off, nothing moves until you press <b>Move to pointer</b>. Descend grabs at the calibrated pickup height plus the pickup offset (tweak it so the vacuum cup seats properly).</div>
+      </div>
+
+      <div class="panel">
+        <h2>End tool</h2>
+        <div class="row">
+          <button id="btnSuck" disabled>⭳ Vacuum</button>
+          <button id="btnBlow" disabled>⭱ Blow</button>
+          <button id="btnPumpOff" disabled>Off</button>
+          <span id="pumpPill" class="pill off"><span id="pumpText">off</span></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Live status</h2>
+        <div class="grid">
+          <div class="stat"><div class="k">Connection</div><div class="v" id="sConn">—</div></div>
+          <div class="stat"><div class="k">Robot mode</div><div class="v" id="sMode">—</div></div>
+          <div class="stat"><div class="k">Servos</div><div class="v" id="sServo">—</div></div>
+          <div class="stat"><div class="k">Error</div><div class="v" id="sErr">—</div></div>
+        </div>
+      </div>
+
+      <div class="panel"><h2>Log</h2><div id="log"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ORIGIN = location.origin;
+const SANDBOX = (location.pathname.match(/\/s\/([^/]+)/)||[])[1] || 'gamemaster';
+const CART = `${ORIGIN}/s/${SANDBOX}/p/cartesian-xyz-test`;
+const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam`;
+const CALIB_KEY = `pp2-calib-${SANDBOX}`;
+const gid = id => document.getElementById(id);
+
+let calib = null;       // [{marker,px,py,X,Y,Z}]
+let H = null;           // homography pixel -> robot X,Y
+let zPlane = null;      // [a,b,c] : Z = a*X + b*Y + c
+let connected = false, enabled = false, pumpMode = 'off';
+let lastPose = null, target = null;   // target = {X,Y,pickZ,moveZ}
+let linkMode = 'direct';
+let workspace = { z:[-150,230] };
+
+function log(m, cls){ const e=gid('log'); const d=document.createElement('div'); if(cls)d.style.color=`var(--${cls})`; d.textContent=`[${new Date().toLocaleTimeString()}] ${m}`; e.appendChild(d); e.scrollTop=e.scrollHeight; }
+async function api(path, body, method){
+  const opts={ method: method || (body?'POST':'GET') };
+  if(body){ opts.headers={'Content-Type':'application/json'}; opts.body=JSON.stringify(body); }
+  try{ const r=await fetch(`${CART}${path}`,opts); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{}}catch(_){}; return d; }
+  catch(e){ log(`net error ${path}: ${e}`,'err'); return {ok:false,error:String(e)}; }
+}
+async function jget(url){ const r=await fetch(url); return r.json(); }
+
+/* ---- corner-pin maths (reused from the calibration tool) ---- */
+function solveLinear(A, b, n){
+  for(let i=0;i<n;i++){ let p=i;
+    for(let r=i+1;r<n;r++) if(Math.abs(A[r][i])>Math.abs(A[p][i])) p=r;
+    if(Math.abs(A[p][i])<1e-12) return null;
+    [A[i],A[p]]=[A[p],A[i]]; [b[i],b[p]]=[b[p],b[i]];
+    for(let r=0;r<n;r++){ if(r===i) continue; const f=A[r][i]/A[i][i];
+      for(let c=i;c<n;c++) A[r][c]-=f*A[i][c]; b[r]-=f*b[i]; } }
+  return A.map((row,i)=>b[i]/row[i]);
+}
+function computeHomography(pts){
+  if(pts.length<4) return null;
+  const N=Array.from({length:8},()=>new Array(8).fill(0)), c=new Array(8).fill(0);
+  const addRow=(row,rhs)=>{ for(let i=0;i<8;i++){ c[i]+=row[i]*rhs; for(let j=0;j<8;j++) N[i][j]+=row[i]*row[j]; } };
+  for(const p of pts){
+    addRow([p.px,p.py,1,0,0,0,-p.px*p.X,-p.py*p.X], p.X);
+    addRow([0,0,0,p.px,p.py,1,-p.px*p.Y,-p.py*p.Y], p.Y);
+  }
+  return solveLinear(N,c,8);
+}
+function applyH(h,px,py){ const den=h[6]*px+h[7]*py+1; if(Math.abs(den)<1e-9) return null;
+  return { x:(h[0]*px+h[1]*py+h[2])/den, y:(h[3]*px+h[4]*py+h[5])/den }; }
+function fitZPlane(pts){   // Z = a*X + b*Y + c
+  const N=[[0,0,0],[0,0,0],[0,0,0]], c=[0,0,0];
+  for(const p of pts){ const r=[p.X,p.Y,1];
+    for(let i=0;i<3;i++){ c[i]+=r[i]*p.Z; for(let j=0;j<3;j++) N[i][j]+=r[i]*r[j]; } }
+  return solveLinear(N,c,3);
+}
+function planeZ(X,Y){ return zPlane ? zPlane[0]*X+zPlane[1]*Y+zPlane[2] : null; }
+function rmsXY(){ if(!H||!calib) return null; let s=0;
+  for(const p of calib){ const m=applyH(H,p.px,p.py); if(!m) return null; s+=(m.x-p.X)**2+(m.y-p.Y)**2; }
+  return Math.sqrt(s/calib.length); }
+
+/* ---- calibration CSV ---- */
+function parseCsv(text){
+  const out=[];
+  for(const line of text.trim().split(/\r?\n/)){
+    const t=line.split(',').map(s=>s.trim());
+    const px=+t[1], py=+t[2], X=+t[3], Y=+t[4], Z=+t[5];
+    if([px,py,X,Y,Z].every(Number.isFinite)) out.push({marker:t[0], px, py, X, Y, Z});
+  }
+  return out;
+}
+function loadCalib(text, remember){
+  const pts=parseCsv(text);
+  if(pts.length<4){ gid('calibStatus').textContent=`Need 4 complete corners, found ${pts.length}.`; gid('calibStatus').style.color='var(--err)'; return false; }
+  calib=pts; H=computeHomography(pts); zPlane=fitZPlane(pts);
+  if(!H||!zPlane){ gid('calibStatus').textContent='Degenerate calibration (points collinear?).'; gid('calibStatus').style.color='var(--err)'; calib=H=zPlane=null; return false; }
+  if(remember) localStorage.setItem(CALIB_KEY, text);
+  const err=rmsXY();
+  gid('calibStatus').style.color='var(--muted)';
+  gid('calibStatus').textContent=`Loaded ${pts.length} corners · fit ±${err.toFixed(1)} mm. Click the camera to move there.`;
+  gid('calibInd').textContent=`calibration: ${pts.length} pts ±${err.toFixed(1)}mm`;
+  renderOverlay(); updateMoveBtns();
+  return true;
+}
+function clearCalib(){ calib=H=zPlane=null; localStorage.removeItem(CALIB_KEY);
+  gid('calibStatus').textContent='Calibration cleared. Load a CSV to enable click-to-move.';
+  gid('calibInd').textContent='no calibration loaded'; renderOverlay(); updateMoveBtns(); }
+
+/* ---- pixel <-> display ---- */
+function imgGeom(){ const img=gid('webcamFeed'), rect=img.getBoundingClientRect(), nW=img.naturalWidth, nH=img.naturalHeight;
+  if(!nW||!nH||!rect.width) return null;
+  const scale=Math.min(rect.width/nW, rect.height/nH);
+  return { rect, nW, nH, scale, offX:(rect.width-nW*scale)/2, offY:(rect.height-nH*scale)/2 }; }
+function pixelToDisplay(px,py){ const g=imgGeom(); if(!g) return null; return { left:g.offX+px*g.scale, top:g.offY+py*g.scale }; }
+function eventToPixel(ev){ const g=imgGeom(); if(!g) return null;
+  const x=(ev.clientX-g.rect.left-g.offX)/g.scale, y=(ev.clientY-g.rect.top-g.offY)/g.scale;
+  if(x<0||y<0||x>g.nW||y>g.nH) return null; return { x:Math.round(x), y:Math.round(y) }; }
+
+let clickMark=null;   // {px,py}
+function renderOverlay(){
+  const wrap=gid('feedWrap'); wrap.querySelectorAll('.mark,.lbl').forEach(n=>n.remove());
+  const add=(px,py,cls,label)=>{ const d=pixelToDisplay(px,py); if(!d) return;
+    const m=document.createElement('div'); m.className='mark '+cls; m.style.left=d.left+'px'; m.style.top=d.top+'px'; wrap.appendChild(m);
+    if(label){ const l=document.createElement('div'); l.className='lbl'; l.style.left=d.left+'px'; l.style.top=d.top+'px'; l.innerHTML=label; l.style.color=getComputedStyle(m).color; wrap.appendChild(l); } };
+  if(calib) calib.forEach((p,i)=>add(p.px,p.py,'pin',
+    `pin ${i+1} · px ${Math.round(p.px)}, ${Math.round(p.py)}<br>X ${p.X.toFixed(1)} Y ${p.Y.toFixed(1)} Z ${p.Z.toFixed(1)} mm`));
+  if(clickMark) add(clickMark.px, clickMark.py, 'click',
+    target ? `px ${clickMark.px}, ${clickMark.py}<br>X ${target.X.toFixed(1)} Y ${target.Y.toFixed(1)} mm`
+           : `px ${clickMark.px}, ${clickMark.py}`);
+}
+
+/* ---- motion ---- */
+function clampZ(v){ return Math.max(workspace.z[0], Math.min(workspace.z[1], v)); }
+async function moveTo(X,Y,Z){
+  if(!connected){ log('Connect + Enable first.','err'); return; }
+  if(gPhase!=='running'){ log('Round not started — both players must enable their arms first.','warn'); return; }
+  const res=await api('/api/move',{x:X,y:Y,z:clampZ(Z)});
+  if(!res.ok) log(`move ✗ ${res.error||res.errid||''}`,'err');
+}
+// Clicking only PROBES: drop a pointer and show image px + interpolated robot
+// X/Y/Z. Nothing moves until you press "Move to pointer".
+function onFeedClick(ev){
+  const c=eventToPixel(ev); if(!c){ return; }
+  clickMark={ px:c.x, py:c.y };
+  gid('imgXY').textContent=`${c.x}, ${c.y}`;
+  if(!H){ gid('tgtXY').textContent=gid('pickZ').textContent=gid('grabZ').textContent=gid('moveZ').textContent='—'; target=null; renderOverlay(); updateMoveBtns(); log('Load a calibration CSV to get robot coords.','err'); return; }
+  const w=applyH(H,c.x,c.y); if(!w){ log('mapping failed','err'); return; }
+  const pickZ=planeZ(w.x,w.y);
+  const offset=parseFloat(gid('moveOffset').value)||60;
+  const pickOff=parseFloat(gid('pickupOffset').value)||0;
+  const grabZ=pickZ+pickOff;
+  const moveZ=pickZ+offset;
+  target={ X:w.x, Y:w.y, pickZ, grabZ, moveZ };
+  gid('tgtXY').textContent=`${w.x.toFixed(1)} / ${w.y.toFixed(1)}`;
+  gid('pickZ').textContent=pickZ.toFixed(1); gid('grabZ').textContent=grabZ.toFixed(1); gid('moveZ').textContent=moveZ.toFixed(1);
+  renderOverlay(); updateMoveBtns();
+  log(`pointer → image ${c.x},${c.y} → robot X ${w.x.toFixed(1)} Y ${w.y.toFixed(1)} Z ${pickZ.toFixed(1)} (grab Z ${grabZ.toFixed(1)}, move Z ${moveZ.toFixed(1)})`);
+  if(gid('autoMove').checked && connected){ log(`auto-move → X ${w.x.toFixed(1)} Y ${w.y.toFixed(1)} Z ${moveZ.toFixed(1)}`); moveTo(target.X,target.Y,target.moveZ); }
+}
+function updateMoveBtns(){ const ok=connected && !!target && gPhase==='running'; gid('btnMove').disabled=!ok; gid('btnDescend').disabled=!ok; gid('btnLift').disabled=!ok; }
+// In auto-move mode the click already moves, so the manual button is redundant — hide it.
+function syncAutoMove(){ gid('btnMove').style.display = gid('autoMove').checked ? 'none' : ''; }
+
+/* ---- status ---- */
+function setConnUI(on){ connected=on;
+  ['btnDisconnect','btnEnable','btnClear','btnStop','btnSuck','btnBlow','btnPumpOff'].forEach(id=>gid(id).disabled=!on);
+  gid('btnConnect').disabled=on; updateMoveBtns(); }
+function applyStatus(s){
+  const faulted=!!(s.connected&&(s.error||s.mode_name==='ERROR'||s.servo_error));
+  gid('connPill').className='pill '+(s.connected?'on':(faulted?'error':'off'));
+  gid('connText').textContent=s.connected?(s.enabled?'Enabled':'Connected'):'Disconnected';
+  if(s.connected!==connected) setConnUI(s.connected);
+  enabled=!!s.enabled;
+  maybeReportEnabled(enabled);
+  gid('sConn').textContent=s.connected?'online':'offline';
+  gid('sMode').textContent=s.mode_name||'—'; gid('sMode').style.color=faulted?'var(--err)':'var(--txt)';
+  gid('sServo').textContent=s.servo_active?(s.control_mode||'on'):(s.enabled?'idle':'off');
+  gid('sErr').textContent=faulted?'FAULT':'none'; gid('sErr').style.color=faulted?'var(--err)':'var(--muted)';
+  const cb=gid('crashBar');
+  if(faulted){ cb.style.display='block'; cb.textContent=s.servo_error?`⚠ Follower error — ${s.servo_error}. Stop, Clear Error, Enable.`:`⚠ Robot faulted (ERROR). Clear Error + Enable, or restart the arm.`; }
+  else cb.style.display='none';
+  if(Array.isArray(s.pose)){ lastPose=s.pose; gid('poseInd').textContent=`pose ${s.pose[0].toFixed(0)}, ${s.pose[1].toFixed(0)}, ${s.pose[2].toFixed(0)}`; }
+  const pm=s.pump_mode||'off'; pumpMode=pm; gid('pumpText').textContent=pm;
+  gid('pumpPill').className='pill '+(pm==='off'?'off':(pm==='conflict'?'error':'on'));
+  gid('btnSuck').className=pm==='suck'?'ok':''; gid('btnBlow').className=pm==='blow'?'warn':'';
+}
+
+/* ===================== game layer (name gate, shared timer, high scores) ===================== */
+const GAME = `${ORIGIN}/s/gamemaster/p/pick-place-v2`;
+const TEAM = SANDBOX;   // 'green' | 'purple'
+const NAME_KEY = 'pp2-player-names';
+let gstate=null, playerName='', gPhase='idle', gClock=0, gPrevPhase=null, lastReportedEnabled=null;
+
+function cleanName(v){ return String(v||'').trim().slice(0,32); }
+function nameHistory(){ try{ const a=JSON.parse(localStorage.getItem(NAME_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(_){ return []; } }
+function rememberName(name){
+  const seen=new Set(), out=[];
+  for(const n of [name,...nameHistory()].map(cleanName).filter(Boolean)){ const k=n.toLowerCase(); if(seen.has(k))continue; seen.add(k); out.push(n); }
+  localStorage.setItem(NAME_KEY, JSON.stringify(out.slice(0,24))); renderNameOptions();
+}
+function renderNameOptions(){ gid('nameOptions').innerHTML=''; for(const n of nameHistory().slice(0,8)){ const o=document.createElement('option'); o.value=n; gid('nameOptions').appendChild(o); } }
+
+async function gpost(path, body){
+  const r=await fetch(GAME+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{}}catch(_){}; if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d;
+}
+function showLogin(){ gid('login').hidden=false; }
+function showApp(){ gid('login').hidden=true; }
+function myTeam(s){ return (s&&s.teams&&s.teams[TEAM])||{}; }
+
+async function submitName(ev){
+  ev.preventDefault();
+  const name=cleanName(gid('nameInput').value);
+  if(!name){ gid('nameStatus').textContent='Enter your name to begin.'; return; }
+  gid('nameStatus').textContent='Registering…';
+  try{
+    const s=await gpost('/api/player',{team:TEAM,name});
+    playerName=name; rememberName(name);
+    lastReportedEnabled=null;          // re-report enable state for the fresh run
+    gameApplyState(s); showApp();
+    maybeReportEnabled(enabled);
+  }catch(e){ gid('nameStatus').textContent=`Failed: ${e.message}`; }
+}
+
+function stopGClock(){ clearInterval(gClock); gClock=0; }
+function startGClock(){
+  stopGClock();
+  const tick=()=>{ const ts=myTeam(gstate); if(ts.phase!=='running'||!ts.started_at) return;
+    gid('gClock').textContent=`${Math.max(0,(Date.now()/1000)-Number(ts.started_at)).toFixed(1)}s`; };
+  tick(); gClock=setInterval(tick,100);
+}
+
+// Tell the gamemaster game whether this arm is enabled; the round starts once
+// BOTH teams report enabled. Deduped so we only POST on a change.
+async function maybeReportEnabled(on){
+  if(on===lastReportedEnabled) return;
+  lastReportedEnabled=on;
+  try{ gameApplyState(await gpost('/api/enabled',{team:TEAM,enabled:!!on})); }
+  catch(_){ lastReportedEnabled=null; }
+}
+
+function setLock(on, msg){ const b=gid('lockBar'); b.style.display=on?'block':'none'; if(on) b.textContent=msg; }
+
+function gameApplyState(s){
+  gstate=s||{};
+  const ts=myTeam(gstate); const phase=ts.phase||'idle'; gPhase=phase;
+  gid('gPlayer').textContent=ts.player||playerName||'—';
+
+  // Gamemaster reset (anything → idle) returns to the name gate for the next player.
+  if(phase==='idle' && gPrevPhase && gPrevPhase!=='idle'){ playerName=''; lastReportedEnabled=null; gid('nameStatus').textContent='Enter your name to begin.'; showLogin(); }
+  gPrevPhase=phase;
+
+  if(phase==='running'){
+    setLock(false); gid('gStatus').textContent='Go! The gamemaster will mark you finished.';
+    startGClock();
+  } else if(phase==='done'){
+    stopGClock(); gid('gClock').textContent=`${Number(ts.elapsed_seconds).toFixed(1)}s`;
+    setLock(true,`Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s — wait for the gamemaster to restart.`);
+    gid('gStatus').textContent='Finished.';
+  } else { // idle | ready
+    stopGClock(); gid('gClock').textContent='--';
+    setLock(true, ts.enabled ? 'Arm enabled — waiting for the other player to enable.'
+                             : 'Enable your arm to start. You can\'t move until both arms are enabled.');
+    gid('gStatus').textContent = ts.enabled ? 'Waiting for the other player…' : 'Connect → Enable to begin.';
+  }
+  updateMoveBtns();
+}
+
+function gameInit(){
+  gid('loginTeam').textContent=TEAM.charAt(0).toUpperCase()+TEAM.slice(1);
+  renderNameOptions();
+  gid('namePanel').addEventListener('submit', submitName);
+  showLogin(); gid('nameInput').focus();
+  fetch(`${GAME}/api/state`).then(r=>r.json()).then(gameApplyState).catch(()=>{});
+  const ges=new EventSource(`${GAME}/api/events`);
+  ges.onmessage=e=>{ try{ gameApplyState(JSON.parse(e.data)); }catch(_){} };
+}
+
+/* ---- link mode / identity ---- */
+function setLinkMode(m){ linkMode=m;
+  document.querySelectorAll('#linkSeg button').forEach(b=>b.classList.toggle('active',b.dataset.link===m));
+  const relay=m==='relay'; gid('ip').style.display=relay?'none':''; gid('relayHost').style.display=relay?'':'none'; gid('relaySide').style.display=relay?'':'none'; }
+function applyIdentity(ident){ if(!ident||!ident.is_player) return;
+  setLinkMode('relay'); gid('linkSeg').style.display='none'; gid('relaySide').value=ident.side; gid('relaySide').disabled=true;
+  gid('connHint').textContent=`You are the ${ident.side.toUpperCase()} player — drives the ${ident.side} arm via the relay.`; }
+
+function wire(){
+  gid('csvFile').onchange=()=>{ const f=gid('csvFile').files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>loadCalib(r.result,true); r.readAsText(f); };
+  gid('btnClearCalib').onclick=clearCalib;
+  gid('feedWrap').addEventListener('click', onFeedClick);
+  document.querySelectorAll('#linkSeg button').forEach(b=>b.onclick=()=>setLinkMode(b.dataset.link));
+  gid('btnConnect').onclick=async()=>{ if(linkMode==='relay'){ await api('/api/connect',{mode:'relay',host:gid('relayHost').value.trim(),side:gid('relaySide').value}); log('connect (relay)'); } else { await api('/api/connect',{mode:'direct',ip:gid('ip').value.trim()}); log('connect'); } };
+  gid('btnDisconnect').onclick=()=>api('/api/disconnect',{});
+  gid('btnEnable').onclick=()=>api('/api/enable',{}).then(()=>log('enable'));
+  gid('btnClear').onclick=async()=>{ if((await api('/api/clear_error',{})).ok) api('/api/enable',{}); };
+  gid('btnStop').onclick=()=>api('/api/stop',{});
+  gid('btnSuck').onclick=()=>api('/api/pump',{mode:'suck'});
+  gid('btnBlow').onclick=()=>api('/api/pump',{mode:'blow'});
+  gid('btnPumpOff').onclick=()=>api('/api/pump',{mode:'off'});
+  gid('btnMove').onclick=()=>{ if(target){ log(`move → X ${target.X.toFixed(1)} Y ${target.Y.toFixed(1)} Z ${target.moveZ.toFixed(1)}`); moveTo(target.X,target.Y,target.moveZ); } };
+  gid('btnDescend').onclick=()=>{ if(target){ log(`descend to grab Z ${target.grabZ.toFixed(0)} (pickup ${target.pickZ.toFixed(0)} + offset ${(parseFloat(gid('pickupOffset').value)||0)})`); moveTo(target.X,target.Y,target.grabZ); } };
+  gid('btnLift').onclick=()=>{ if(target){ const z=target.pickZ+(parseFloat(gid('moveOffset').value)||60); log(`lift to move Z ${z.toFixed(0)}`); moveTo(target.X,target.Y,z); } };
+  gid('moveOffset').addEventListener('change',()=>{ if(target){ target.moveZ=target.pickZ+(parseFloat(gid('moveOffset').value)||60); gid('moveZ').textContent=target.moveZ.toFixed(1); } });
+  gid('pickupOffset').addEventListener('change',()=>{ if(target){ target.grabZ=target.pickZ+(parseFloat(gid('pickupOffset').value)||0); gid('grabZ').textContent=target.grabZ.toFixed(1); } });
+  gid('autoMove').addEventListener('change',syncAutoMove); syncAutoMove();
+}
+
+async function init(){
+  wire(); setConnUI(false);
+  const camSrc=()=>`${WEBCAM}/api/stream?clean=1&t=${Date.now()}`;
+  gid('webcamFeed').src=camSrc();
+  gid('webcamFeed').onerror=()=>setTimeout(()=>{ gid('webcamFeed').src=camSrc(); },1000);
+  gid('webcamFeed').onload=renderOverlay;
+  window.addEventListener('resize', renderOverlay);
+  const saved=localStorage.getItem(CALIB_KEY); if(saved) loadCalib(saved,false);
+  const cfg=await api('/api/config');
+  if(cfg.workspace) workspace=cfg.workspace;
+  if(cfg.default_ip) gid('ip').value=cfg.default_ip;
+  if(cfg.relay_host_default) gid('relayHost').value=cfg.relay_host_default;
+  applyIdentity(cfg.identity);
+  applyStatus(await api('/api/status'));
+  const es=new EventSource(`${CART}/api/events`);
+  es.onmessage=e=>{ try{ applyStatus(JSON.parse(e.data)); }catch(_){} };
+  gameInit();
+  log('Ready. Load calibration CSV, Connect → Enable, then click the camera.');
+}
+init();
+</script>
+</body>
+</html>

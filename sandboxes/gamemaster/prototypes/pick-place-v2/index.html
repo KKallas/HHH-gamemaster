@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pick &amp; Place v2 — Referee</title>
+<link rel="stylesheet" href="/theme.css" />
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef; --muted:#8a93a6;
+    --accent:#4f9dff; --ok:#36c46b; --warn:#f5a623; --err:#ff5462; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width:1180px; margin:0 auto; padding:14px 20px 28px; }
+  .topbar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .topbar h1 { margin:0; font-size:18px; } .sub { color:var(--muted); font-size:12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  .layout { display:grid; grid-template-columns:1.3fr 1fr; gap:16px; align-items:start; }
+  @media (max-width:920px){ .layout{ grid-template-columns:1fr; } }
+  .feedWrap { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:#030405; aspect-ratio:16/9; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  .teams { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:560px){ .teams{ grid-template-columns:1fr; } }
+  .team { border:1px solid var(--line); border-radius:10px; padding:14px; background:#13161c; border-top:4px solid var(--line); }
+  .team.green { border-top-color:#36e07c; } .team.purple { border-top-color:#b86bff; }
+  .team .who { font-size:13px; font-weight:850; display:flex; gap:8px; align-items:center; }
+  .team .dot { width:10px; height:10px; border-radius:50%; }
+  .team.green .dot { background:#36e07c; } .team.purple .dot { background:#b86bff; }
+  .line { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .line .lab { color:var(--muted); } .line .v { font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700; background:#232733; color:var(--muted); }
+  .pill.on { color:var(--ok); } .pill.off { color:var(--muted); } .pill.error { color:var(--err); }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt); padding:8px 12px; border-radius:6px; font:inherit; cursor:pointer; min-height:40px; }
+  button:hover:not(:disabled){ border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.danger { background:#2a1216; border-color:#5a2630; color:#ff8a96; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  a.openp { color:var(--accent); font-size:12px; text-decoration:none; } a.openp:hover{ text-decoration:underline; }
+  .warnBox { display:none; margin-top:10px; padding:9px 11px; border-radius:8px; background:#3a2410; border:1px solid var(--warn); color:var(--warn); font-weight:700; font-size:12px; }
+  #status { font-size:13px; min-height:18px; color:var(--muted); }
+  /* ---- game layer ---- */
+  .gamehead { display:flex; align-items:baseline; gap:10px; margin:10px 0 2px; flex-wrap:wrap; }
+  .pname { font-weight:900; font-size:16px; } .pname.empty { color:var(--muted); font-weight:600; font-size:13px; }
+  .gphase { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-left:auto; }
+  .gphase.running { color:var(--ok); } .gphase.done { color:var(--warn); } .gphase.ready { color:var(--accent); }
+  .gtimer { font-size:30px; font-weight:900; font-variant-numeric:tabular-nums; margin:2px 0 8px; }
+  button.finish { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:850; width:100%; }
+  button.finish.cancel { background:var(--warn); border-color:var(--warn); color:#1a1200; }
+  .bestCard { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .bestCard .k { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
+  .bestCard .v { margin-top:3px; font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  td.num { font-variant-numeric:tabular-nums; text-align:right; }
+  td.tg.green { color:#36e07c; } td.tg.purple { color:#b86bff; }
+  .results-wrap { max-height:280px; overflow:auto; }
+  .empty-row { color:var(--muted); font-size:13px; padding:10px 2px; }
+  a.dl { color:var(--accent); font-size:12px; text-decoration:none; } a.dl:hover{ text-decoration:underline; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>Pick &amp; Place v2</h1>
+    <span class="sub">Game Master · referee — players use the controller in their own page</span>
+    <span style="flex:1"></span>
+    <span id="status"></span>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="panel">
+        <h2>Live camera</h2>
+        <div class="feedWrap"><img id="webcamFeed" alt="live game camera feed" /></div>
+      </div>
+    </section>
+    <section>
+      <div class="panel">
+        <h2>Teams</h2>
+        <div class="teams">
+          <div class="team green" id="team-green"></div>
+          <div class="team purple" id="team-purple"></div>
+        </div>
+        <div class="hint" style="margin-top:10px;color:var(--muted);font-size:12px">The round timer starts for both teams once both players have entered a name and enabled their arm — until then they can't move.</div>
+        <div class="row"><button id="btnNewRound" class="danger" style="width:100%">Reset round (clear both players)</button></div>
+      </div>
+      <div class="panel">
+        <h2>Best time</h2>
+        <div class="bestCard"><div class="k">Fastest run</div><div class="v" id="bestTime">--</div></div>
+      </div>
+      <div class="panel">
+        <h2>Results <span id="resultCount" class="hint"></span>
+          <a class="dl" href="api/log.csv" download style="float:right">⭳ CSV</a></h2>
+        <div class="results-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Secs</th><th>When</th></tr></thead>
+            <tbody id="resultsBody"><tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const ORIGIN = location.origin;
+const RELAY = `${ORIGIN}/s/gamemaster/p/dobot-mg400-relay`;
+const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam/api/stream`;
+const SIDES = ['green','purple'];
+const el = id => document.getElementById(id);
+
+function setStatus(m, err){ el('status').textContent=m||''; el('status').style.color=err?'var(--err)':'var(--muted)'; }
+async function jpost(path, body){ const r=await fetch(RELAY+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{}}catch(_){}; if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; }
+
+function startWebcam(){ el('webcamFeed').src=`${WEBCAM}?t=${Date.now()}`; }
+
+function fmtPose(p){ return Array.isArray(p) ? `${p[0].toFixed(0)}, ${p[1].toFixed(0)}, ${p[2].toFixed(0)}` : '—'; }
+
+// Each team card is split into a re-rendered status block (updated every SSE
+// tick) and a PERSISTENT controls row (built once) — so the speed slider keeps
+// focus / drag state instead of being wiped 5x/s by an innerHTML rebuild.
+const teamRefs = {};
+function buildTeam(side){
+  const host = el(`team-${side}`);
+  host.innerHTML = `
+    <div class="who"><span class="dot"></span>${side[0].toUpperCase()+side.slice(1)}
+      <span style="flex:1"></span><a class="openp" href="${ORIGIN}/s/${side}/p/pick-place-v2/" target="_blank">↗ open controller</a></div>
+    <div class="gamehead"><span class="pname empty">no player</span><span class="gphase">idle</span></div>
+    <div class="gtimer">--</div>
+    <button class="finish" data-game="finish" disabled>Mark ${side[0].toUpperCase()+side.slice(1)} finished</button>
+    <div class="status" style="margin-top:12px"></div>
+    <div class="warnBox"></div>
+    <div class="row">
+      <button data-act="kick">Kick controller</button>
+      <button class="danger" data-act="reset">Reset driver</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label class="sub" style="flex:1;display:flex;align-items:center;gap:8px">Speed
+        <input type="range" class="speed" min="1" max="100" value="100" style="flex:1;vertical-align:middle">
+        <span class="speedVal" style="min-width:38px;text-align:right">100%</span>
+      </label>
+    </div>`;
+  host.querySelectorAll('button[data-act]').forEach(b=> b.onclick = () => act(b.dataset.act, side));
+  const sp = host.querySelector('.speed'), spv = host.querySelector('.speedVal');
+  let t = null;
+  sp.addEventListener('input', () => {
+    spv.textContent = sp.value + '%';
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      try { await jpost('/api/speed', {side, ratio:parseInt(sp.value,10)}); setStatus(`${side} speed → ${sp.value}%`); }
+      catch(e){ setStatus(`set ${side} speed failed: ${e.message}`, true); }
+    }, 150);
+  });
+  const finishBtn = host.querySelector('button[data-game="finish"]');
+  finishBtn.onclick = () => onFinish(side);
+  teamRefs[side] = { host, status: host.querySelector('.status'), warn: host.querySelector('.warnBox'),
+    sp, spv, pname: host.querySelector('.pname'), phase: host.querySelector('.gphase'),
+    timer: host.querySelector('.gtimer'), finish: finishBtn };
+}
+
+function renderTeam(side, arm, sideInfo){
+  arm=arm||{}; sideInfo=sideInfo||{};
+  if(!teamRefs[side]) buildTeam(side);
+  const r = teamRefs[side];
+  const faulted = !!(arm.connected && (arm.error || arm.mode_name==='ERROR' || arm.servo_error || arm.stalled));
+  const conn = arm.connected ? `<span class="pill on">connected</span>` : `<span class="pill off">offline</span>`;
+  const en = arm.enabled ? `<span class="pill on">enabled</span>` : `<span class="pill off">${arm.connected?'idle':'—'}</span>`;
+  const ctrl = sideInfo.present ? `<span class="pill on">player · lease ${(sideInfo.lease_secs||0).toFixed(1)}s</span>` : `<span class="pill off">no controller</span>`;
+  let warn='';
+  if(arm.connected && arm.error || arm.mode_name==='ERROR') warn=`⚠ ${side.toUpperCase()} in ERROR — Reset / power-cycle the arm.`;
+  else if(arm.stalled) warn=`⚠ suspected crash — accepts commands but not moving (${(arm.stall_error||0).toFixed(1)} off).`;
+  else if(arm.servo_error) warn=`⚠ follower: ${arm.servo_error}`;
+  r.status.innerHTML = `
+      <div class="line"><span class="lab">Connection</span><span class="v">${conn}</span></div>
+      <div class="line"><span class="lab">Servos</span><span class="v">${en}</span></div>
+      <div class="line"><span class="lab">Robot mode</span><span class="v" style="${faulted?'color:var(--err)':''}">${arm.mode_name||'—'}</span></div>
+      <div class="line"><span class="lab">Pose X/Y/Z</span><span class="v">${fmtPose(arm.pose)}</span></div>
+      <div class="line"><span class="lab">Pump</span><span class="v">${arm.pump_mode||'—'}</span></div>
+      <div class="line"><span class="lab">Controller</span><span class="v">${ctrl}</span></div>`;
+  r.warn.textContent = warn; r.warn.style.display = warn ? 'block' : 'none';
+  // Sync the slider from the relay unless the operator is actively dragging it.
+  if(typeof arm.speed_ratio==='number' && document.activeElement!==r.sp){
+    r.sp.value = arm.speed_ratio; r.spv.textContent = arm.speed_ratio + '%';
+  }
+}
+
+async function act(a, side){
+  try {
+    if(a==='kick'){ await jpost('/api/kick',{side}); setStatus(`Kicked ${side}'s controller.`); }
+    else if(a==='reset'){ await jpost('/api/reset',{side}); setStatus(`Reset ${side} driver (reconnect + re-arm).`); }
+  } catch(e){ setStatus(`${a} ${side} failed: ${e.message}`, true); }
+}
+
+function applyState(s){
+  const arms=(s&&s.arms)||{}, sides=(s&&s.sides)||{};
+  SIDES.forEach(side => renderTeam(side, arms[side], sides[side]));
+}
+
+/* ===================== game layer (this prototype's own API) ===================== */
+const GAME = `${ORIGIN}/s/gamemaster/p/pick-place-v2`;
+let gstate = null, gameTick = 0;
+
+async function gpost(path, body){
+  const r = await fetch(GAME+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const t = await r.text(); let d={}; try{d=t?JSON.parse(t):{}}catch(_){};
+  if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d;
+}
+const fmtSecs = v => (v==null || !Number.isFinite(Number(v))) ? '--' : `${Number(v).toFixed(1)}s`;
+const fmtWhen = iso => { if(!iso) return '—'; const d=new Date(iso); return Number.isNaN(d.getTime())?'—':d.toLocaleString(); };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function stopGameTick(){ clearInterval(gameTick); gameTick=0; }
+function startGameTick(){
+  stopGameTick();
+  const tick = () => {
+    if(!gstate) return;
+    SIDES.forEach(side => {
+      const ts=(gstate.teams||{})[side]||{};
+      if(ts.phase==='running' && ts.started_at && teamRefs[side])
+        teamRefs[side].timer.textContent = `${Math.max(0,(Date.now()/1000)-Number(ts.started_at)).toFixed(1)}s`;
+    });
+  };
+  tick(); gameTick = setInterval(tick, 100);
+}
+
+function gameApplyState(s){
+  gstate = s || {};
+  let anyRunning = false;
+  SIDES.forEach(side => {
+    if(!teamRefs[side]) buildTeam(side);
+    const r = teamRefs[side];
+    const ts = (gstate.teams||{})[side] || {};
+    const phase = ts.phase || 'idle';
+    r.pname.textContent = ts.player || 'no player';
+    r.pname.classList.toggle('empty', !ts.player);
+    r.phase.textContent = phase==='ready' ? (ts.enabled?'enabled — waiting':'ready') : phase;
+    r.phase.className = 'gphase ' + phase;
+    const cap = side[0].toUpperCase()+side.slice(1);
+    r.finish.disabled = phase!=='running' && phase!=='done';
+    r.finish.classList.toggle('cancel', phase==='done');
+    r.finish.textContent = phase==='done' ? `Cancel ${cap} finish` : `Mark ${cap} finished`;
+    if(phase==='running') anyRunning = true;
+    else r.timer.textContent = phase==='done' ? fmtSecs(ts.elapsed_seconds) : '--';
+  });
+  const b = gstate.best_seconds;
+  el('bestTime').textContent = b!=null
+    ? `${fmtSecs(b)}${gstate.best_player?' · '+gstate.best_player:''}${gstate.best_team?' ('+gstate.best_team+')':''}` : '--';
+  if(anyRunning) startGameTick(); else stopGameTick();
+}
+
+async function onFinish(side){
+  const done = gstate && gstate.teams && gstate.teams[side] && gstate.teams[side].phase==='done';
+  try { gameApplyState(await gpost(done?'/api/cancel':'/api/finish', {team:side})); refreshResults(); }
+  catch(e){ setStatus(`${done?'cancel':'finish'} ${side} failed: ${e.message}`, true); }
+}
+
+async function refreshResults(){
+  try {
+    const r = await fetch(`${GAME}/api/results`); const data = await r.json();
+    const rows = data.results || [];
+    el('resultCount').textContent = data.count ? `(${data.count} total)` : '';
+    if(!rows.length){ el('resultsBody').innerHTML = `<tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr>`; return; }
+    const best = data.best && data.best.seconds;
+    el('resultsBody').innerHTML = rows.map((row,i) => {
+      const isBest = best!=null && Number(row.elapsed_seconds)===Number(best);
+      return `<tr${isBest?' style="color:var(--ok);font-weight:800"':''}>
+        <td>${data.count - i}</td>
+        <td>${esc(row.player||'—')}${isBest?' ★':''}</td>
+        <td class="tg ${row.team==='green'||row.team==='purple'?row.team:''}">${esc(row.team||'—')}</td>
+        <td class="num">${Number(row.elapsed_seconds).toFixed(1)}</td>
+        <td>${fmtWhen(row.logged_at)}</td></tr>`;
+    }).join('');
+  } catch(_){}
+}
+
+async function onNewRound(){
+  try { gameApplyState(await gpost('/api/reset', {})); setStatus('Round reset — both players cleared.'); refreshResults(); }
+  catch(e){ setStatus(`reset round failed: ${e.message}`, true); }
+}
+
+async function init(){
+  startWebcam();
+  el('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
+  el('btnNewRound').onclick = onNewRound;
+  SIDES.forEach(buildTeam);   // build both cards up front so either stream can fill them
+  // Relay stream — arm status + kick/reset/speed.
+  try { applyState(await (await fetch(`${RELAY}/api/state`)).json()); } catch(_){}
+  const es = new EventSource(`${RELAY}/api/events`);
+  es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch(_){} };
+  // Game stream — names, timers, phases, leaderboard.
+  try { gameApplyState(await (await fetch(`${GAME}/api/state`)).json()); } catch(_){}
+  refreshResults();
+  const ges = new EventSource(`${GAME}/api/events`);
+  ges.onmessage = e => {
+    try {
+      const s = JSON.parse(e.data);
+      const before = SIDES.map(t => gstate && gstate.teams && gstate.teams[t] && gstate.teams[t].phase).join();
+      gameApplyState(s);
+      const after = SIDES.map(t => s.teams && s.teams[t] && s.teams[t].phase).join();
+      if(before !== after) refreshResults();
+    } catch(_){}
+  };
+}
+init();
+</script>
+</body>
+</html>

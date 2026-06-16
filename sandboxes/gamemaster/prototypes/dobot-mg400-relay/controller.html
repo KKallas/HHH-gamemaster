@@ -169,7 +169,7 @@ const fmtArr = (a, d) => Array.isArray(a)
 
 // Build the two arm cards once; keep node refs so we never rebuild DOM per frame.
 const cards = {};
-function buildCards(defaults) {
+function buildCards(defaults, last) {
   const host = document.getElementById("arms");
   const tpl = document.getElementById("armTpl");
   SIDES.forEach(side => {
@@ -179,7 +179,9 @@ function buildCards(defaults) {
     node.querySelector(".title").textContent = side[0].toUpperCase() + side.slice(1);
     const q = sel => node.querySelector(sel);
     const lip = q(".lip");
-    lip.value = ((defaults && defaults[side]) || {}).local_ip || "";
+    // Prefer the side's last-connected local IP (persisted across restarts) so a
+    // swapped side↔arm mapping survives a restart; fall back to the default.
+    lip.value = (((last && last[side]) || (defaults && defaults[side]) || {}).local_ip) || "";
     q(".btnConnect").onclick = () => api("/api/connect", { side, local_ip: lip.value.trim() });
     q(".btnDisconnect").onclick = () => api("/api/disconnect", { side });
     q(".btnReset").onclick = () => api("/api/reset", { side });
@@ -308,7 +310,7 @@ function applyCommandLog(rows) {
 
 async function init() {
   const cfg = await api("/api/config");
-  buildCards(cfg.default_links || {});
+  buildCards(cfg.default_links || {}, cfg.last_links || {});
   document.getElementById("zSave").onclick = async () => {
     const value = parseFloat(document.getElementById("zValue").value);
     if (Number.isNaN(value)) { document.getElementById("zStatus").textContent = "enter a number"; return; }

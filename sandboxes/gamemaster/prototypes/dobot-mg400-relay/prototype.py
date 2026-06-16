@@ -130,10 +130,11 @@ RADIUS_MIN = 150.0   # mm — inside this the arm can't reach (too folded)
 RADIUS_MAX = 440.0   # mm — max horizontal reach
 
 # Conservative Tag Game defaults: 10% speed with a gentler ramp/brake profile.
-MAX_JOINT_VEL = 12.0    # deg/s
-MAX_LIN_VEL = 20.0      # mm/s
-MAX_ANG_VEL = 9.0       # deg/s
+MAX_JOINT_VEL = 12.0    # deg/s   (caps at 100% speed)
+MAX_LIN_VEL = 20.0      # mm/s    (caps at 100% speed)
+MAX_ANG_VEL = 9.0       # deg/s   (caps at 100% speed)
 RAMP_SECS = 0.50        # follower ramp/brake time -> accel = vel-cap / ramp-time
+DEFAULT_SPEED_RATIO = 100   # per-side speed %, set by the gamemaster (scales caps)
 
 # Air pump box (two-line suck/blow model — see joint prototype).
 SUCK_DO_INDEX = 2
@@ -142,6 +143,9 @@ BLOW_DO_INDEX = 1
 # Per-side arm connections, guarded by _arm_locks[side] while reconnecting.
 _robots = {s: None for s in SIDES}
 _arm_locks = {s: threading.Lock() for s in SIDES}
+# Per-side speed % (1..100) the gamemaster has set; scales that side's follower
+# velocity/accel caps. Players no longer control speed — it's a referee control.
+_speed_ratio = {s: DEFAULT_SPEED_RATIO for s in SIDES}
 # Last link params each side connected with, so /api/reset can rebuild the driver
 # (fresh sockets) without the operator re-typing the IP.
 _last_link = {s: None for s in SIDES}
@@ -292,6 +296,37 @@ def _save_z_floor():
         pass
 
 
+# Per-side link params (ip / local_ip / iface) the operator last connected with,
+# persisted so a restart restores the SAME side↔arm mapping instead of snapping
+# back to DEFAULT_LINKS. Without this, swapping which arm answers on which side is
+# lost on every restart and they come back in the default order.
+LINKS_PATH = os.path.join(HERE, "links.json")
+
+
+def _load_links():
+    try:
+        with open(LINKS_PATH) as f:
+            data = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return
+    for s in SIDES:
+        link = data.get(s) if isinstance(data, dict) else None
+        if isinstance(link, dict) and link.get("local_ip"):
+            _last_link[s] = {
+                "ip": (link.get("ip") or ROBOT_IP),
+                "local_ip": link["local_ip"],
+                "iface": link.get("iface"),
+            }
+
+
+def _save_links():
+    try:
+        with open(LINKS_PATH, "w") as f:
+            json.dump(_last_link, f, indent=2)
+    except OSError:
+        pass
+
+
 def _solve3(S, rhs):
     """Solve the 3x3 system S·x = rhs by Cramer's rule. None if near-singular."""
     def det3(m):
@@ -393,21 +428,23 @@ def _is_operator_request():
 
 
 _load_z_floor()
+_load_links()
 
 
-def _apply_motion(robot, mode):
-    """Push conservative velocity + acceleration caps to the follower for `mode`
-    (accel = velocity-cap / ramp-time)."""
+def _apply_motion(robot, mode, side):
+    """Push velocity + acceleration caps to the follower for `mode`, scaled by the
+    side's gamemaster speed % (accel = velocity-cap / ramp-time)."""
+    frac = max(1, min(100, _speed_ratio.get(side, DEFAULT_SPEED_RATIO))) / 100.0
     secs = max(0.05, RAMP_SECS)
     if mode == "cartesian":
-        robot.set_max_velocity_cartesian(MAX_LIN_VEL, MAX_ANG_VEL)
-        robot.set_max_accel_cartesian(MAX_LIN_VEL / secs, MAX_ANG_VEL / secs)
+        robot.set_max_velocity_cartesian(frac * MAX_LIN_VEL, frac * MAX_ANG_VEL)
+        robot.set_max_accel_cartesian(frac * MAX_LIN_VEL / secs, frac * MAX_ANG_VEL / secs)
     else:
-        robot.set_max_velocity_joint(MAX_JOINT_VEL)
-        robot.set_max_accel_joint(MAX_JOINT_VEL / secs)
+        robot.set_max_velocity_joint(frac * MAX_JOINT_VEL)
+        robot.set_max_accel_joint(frac * MAX_JOINT_VEL / secs)
 
 
-def _ensure_follower(robot, mode):
+def _ensure_follower(robot, mode, side):
     """Make sure the arm is running the follower for `mode` (switching followers if
     a different one is active). Keeps the connection + enabled state intact. No
     arbitration lock is held here — this does blocking arm I/O."""
@@ -417,7 +454,7 @@ def _ensure_follower(robot, mode):
         return
     if robot.control_mode() != mode:
         robot.start_servo(mode)   # start_servo stops any current follower first
-        _apply_motion(robot, mode)
+        _apply_motion(robot, mode, side)
 
 
 # ---- lease / arbitration helpers (call with _arb_lock held) ----------------
@@ -532,6 +569,7 @@ def _arm_dict(side):
         "pump_mode": _pump_mode(raw.get("digital_out", 0)),
         "control_mode": raw.get("control_mode"),
         "target": None if robot is None else robot.get_target(),
+        "speed_ratio": _speed_ratio.get(side, DEFAULT_SPEED_RATIO),
     }
 
 
@@ -575,6 +613,7 @@ def config():
         "radius_max": RADIUS_MAX,
         "robot_ip": ROBOT_IP,
         "default_links": DEFAULT_LINKS,
+        "last_links": {s: _last_link.get(s) for s in SIDES},
         "sides": list(SIDES),
         "modes": list(MODES),
         "lease_secs": LEASE_SECS,
@@ -640,8 +679,10 @@ def connect():
     if side is None:
         _log_incoming("connect", data, ok=False, error="side must be 'purple' or 'green'")
         return _fail("side must be 'purple' or 'green'")
-    ip = (data.get("ip") or ROBOT_IP).strip()
-    local_ip = (data.get("local_ip") or DEFAULT_LINKS[side]["local_ip"]).strip()
+    saved = _last_link.get(side) or {}
+    ip = (data.get("ip") or saved.get("ip") or ROBOT_IP).strip()
+    local_ip = (data.get("local_ip") or saved.get("local_ip")
+                or DEFAULT_LINKS[side]["local_ip"]).strip()
     iface = (data.get("iface") or "").strip() or None  # optional override
     link = {"ip": ip, "local_ip": local_ip, "iface": iface}
     with _arm_locks[side]:
@@ -657,6 +698,7 @@ def connect():
         _robots[side] = robot
     link["iface"] = robot.iface  # the auto-detected (or given) interface
     _last_link[side] = dict(link)
+    _save_links()
     _log_command("robot", side, "connect", link, ok=True)
     _live.bump()
     return _ok(side=side, **link)
@@ -712,6 +754,7 @@ def reset():
             return _fail(f"reset could not reconnect {side}: {e}", errid=e.errid)
         _robots[side] = robot
         _last_link[side] = {"ip": robot.ip, "local_ip": robot.local_ip, "iface": robot.iface}
+        _save_links()
     # Clear faults + re-arm a clean follower seeded at the current pose (mirrors
     # /api/enable, which seeds from live feedback so there's no jump).
     with _arb_lock:
@@ -727,7 +770,7 @@ def reset():
     if errid == 0:
         try:
             robot.start_servo(mode)
-            _apply_motion(robot, mode)
+            _apply_motion(robot, mode, side)
             _log_command("robot", side, "reset (reconnect + enable)", {"mode": mode}, ok=True)
         except DobotError as e:
             _log_command("robot", side, "reset/start_servo", {"mode": mode}, ok=False, error=str(e))
@@ -789,12 +832,48 @@ def enable():
         return _fail(str(e), errid=e.errid)
     if errid == 0:
         robot.start_servo(mode)
-        _apply_motion(robot, mode)
+        _apply_motion(robot, mode, side)
         _log_command("robot", side, "enable + start_servo", {"mode": mode}, ok=True)
     else:
         _log_command("robot", side, "enable", {"errid": errid, "resp": resp}, ok=False)
     _live.bump()
     return jsonify({"ok": errid == 0, "errid": errid, "resp": resp, "side": side})
+
+
+@bp.route("/api/speed", methods=["POST"])
+def speed():
+    """Set a side's speed % (1..100). GAMEMASTER-ONLY — it's a referee control;
+    players can't change speed. Scales that side's follower velocity/accel caps and
+    applies live if a follower is already running; otherwise it takes effect on the
+    next enable/acquire."""
+    data = request.json or {}
+    _log_incoming("speed", data)
+    if not _is_operator_request():
+        _log_incoming("speed", data, ok=False, error="gamemaster required")
+        return _fail("gamemaster required"), 403
+    side = _side_from(data)
+    if side is None:
+        _log_incoming("speed", data, ok=False, error="side must be 'purple' or 'green'")
+        return _fail("side must be 'purple' or 'green'")
+    try:
+        ratio = int(data.get("ratio"))
+    except (TypeError, ValueError):
+        return _fail("ratio must be an integer 1..100")
+    ratio = max(1, min(100, ratio))
+    _speed_ratio[side] = ratio
+    # Apply live to the running follower (best-effort) so the change is felt now.
+    robot = _arm(side)
+    if robot is not None and robot.is_connected():
+        with _arb_lock:
+            mode = (_sides[side]["mode"] if _sides[side]["token"] is not None
+                    else (robot.control_mode() or "joint"))
+        try:
+            _apply_motion(robot, mode, side)
+        except DobotError:
+            pass
+    _log_command("robot", side, "speed", {"ratio": ratio}, ok=True)
+    _live.bump()
+    return _ok(side=side, ratio=ratio)
 
 
 @bp.route("/api/kick", methods=["POST"])
@@ -864,7 +943,7 @@ def acquire():
     robot = _arm(side)
     if robot is not None and robot.is_connected():
         try:
-            _ensure_follower(robot, mode)
+            _ensure_follower(robot, mode, side)
             _log_command("robot", side, "ensure_follower", {"mode": mode}, ok=True)
         except Exception:   # pragma: no cover - defensive
             _log_command("robot", side, "ensure_follower", {"mode": mode}, ok=False, error="follower failed")
@@ -932,7 +1011,7 @@ def move():
         return _fail("mode must be 'joint' or 'cartesian'")
     # Make sure the right follower is running for this command.
     try:
-        _ensure_follower(robot, mode)
+        _ensure_follower(robot, mode, side)
     except DobotError as e:
         _log_command("robot", side, "ensure_follower", {"mode": mode}, ok=False, error=str(e))
         return _fail(str(e), errid=e.errid)
