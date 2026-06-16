@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calibration — Capture</title>
+<link rel="stylesheet" href="/theme.css" />
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef; --muted:#8a93a6;
+    --accent:#4f9dff; --ok:#36c46b; --warn:#f5a623; --err:#ff5462; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  #app { display:flex; flex-direction:column; height:100vh; height:100dvh; }
+  .topbar { flex:0 0 auto; display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 16px; background:#0c0e12; border-bottom:1px solid var(--line); }
+  .topbar .title { font-weight:850; }
+  .sideTag { font-weight:850; } .sideTag.green{ color:#36e07c; } .sideTag.purple{ color:#b86bff; }
+  .sub { color:var(--muted); font-size:12px; }
+  .gate { flex:1 1 auto; display:grid; place-items:center; text-align:center; padding:24px; color:var(--muted); }
+  .gate[hidden]{ display:none; }
+  .play { flex:1 1 auto; display:flex; min-height:0; }
+  .play[hidden]{ display:none; }
+  .videoPane { position:relative; background:#030405; flex:0 0 56%; min-width:0; border-right:1px solid var(--line); }
+  @media (orientation:portrait){ .play{ flex-direction:column; } .videoPane{ flex:0 0 46%; border-right:none; border-bottom:1px solid var(--line);} }
+  .feedWrap { position:relative; overflow:hidden; width:100%; height:100%; background:#030405; cursor:crosshair; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  .ctrls { flex:1 1 auto; min-width:0; overflow-y:auto; padding:14px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt); padding:8px 12px; border-radius:6px; font:inherit; cursor:pointer; min-height:40px; }
+  button:hover:not(:disabled){ border-color:var(--accent); } button:disabled{ opacity:.4; cursor:not-allowed; }
+  button.ok{ background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:800; }
+  button.warn{ background:var(--warn); border-color:var(--warn); color:#2a1c00; font-weight:700; }
+  button.sm{ min-height:0; padding:5px 9px; font-size:12px; }
+  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .corner{ border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px; background:#13161c; }
+  .corner.active{ border-color:var(--accent); }
+  .corner .hd{ display:flex; align-items:center; gap:8px; }
+  .corner .nm{ font-weight:800; } .corner .mk{ color:var(--muted); font-size:12px; }
+  .corner .st{ margin-left:auto; font-size:12px; }
+  .corner .vals{ font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin:4px 0 8px; }
+  .yes{ color:var(--ok); font-weight:800; } .no{ color:var(--muted); }
+  .pill{ display:inline-block; padding:1px 7px; border-radius:999px; font-size:10px; font-weight:700; }
+  .pill.aruco{ background:#13321f; color:#36e07c; } .pill.manual{ background:#3a2410; color:var(--warn); }
+  .hint{ color:var(--muted); font-size:12px; margin-top:6px; }
+  .stat{ font-variant-numeric:tabular-nums; }
+  .cross{ position:absolute; width:18px; height:18px; margin:-9px 0 0 -9px; pointer-events:none; z-index:3; }
+  .cross::before,.cross::after{ content:''; position:absolute; background:currentColor; }
+  .cross::before{ left:8px; top:0; width:2px; height:18px; } .cross::after{ top:8px; left:0; height:2px; width:18px; }
+  .cross.det{ color:#36e07c; } .cross.cap{ color:#4f9dff; } .cross.active{ color:var(--warn); } .cross.other{ color:#8a93a6; opacity:.7; }
+  .lbl{ position:absolute; transform:translate(10px,-9px); font:700 11px/1 ui-monospace,Menlo,monospace; background:rgba(12,14,18,.85); border:1px solid var(--line); padding:2px 5px; border-radius:4px; pointer-events:none; z-index:3; }
+  .pill.on{ background:#13321f; color:#36e07c; } .pill.off{ background:#232733; color:var(--muted); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <span class="title">Calibration — Capture</span>
+    <span id="sideInd" class="sub">—</span>
+    <span id="flipInd" class="sub">view: normal</span>
+    <span style="flex:1"></span>
+    <span id="armPill" class="pill off">arm —</span>
+    <span class="stat" id="poseInd" class="sub">pose —</span>
+  </div>
+
+  <div class="gate" id="gate">
+    <div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">Waiting for the game master…</div>
+      <div class="sub" id="gateMsg">The game master must select your side to calibrate.</div>
+    </div>
+  </div>
+
+  <div class="play" id="play" hidden>
+    <section class="videoPane">
+      <div class="feedWrap" id="feedWrap">
+        <img id="webcamFeed" alt="live camera feed" />
+        <!-- crosshair overlays injected here -->
+      </div>
+    </section>
+    <div class="ctrls">
+      <div class="panel">
+        <h2>Stage A · Camera pixel <span class="sub">— show a corner marker, or click it on the image</span></h2>
+        <div id="cornersA"></div>
+      </div>
+      <div class="panel">
+        <h2>Stage B · Robot XYZ</h2>
+        <div class="row" style="margin-bottom:8px">
+          <button id="btnConnect">Connect</button>
+          <button id="btnEnable" class="ok">Enable</button>
+          <button id="btnVacOn">Vacuum ON</button>
+          <button id="btnVacOff">Vacuum off</button>
+        </div>
+        <div class="hint">Put a tag on the tool, Vacuum ON, then <b>unlock the arm</b> and place the tool exactly on a corner marker. Capture its XYZ below.</div>
+        <div id="cornersB" style="margin-top:10px"></div>
+      </div>
+      <div class="panel">
+        <div class="row">
+          <button id="btnSave" class="ok">⭳ Save CSV to my computer</button>
+          <span class="hint" id="saveHint" style="margin:0"></span>
+        </div>
+      </div>
+      <div class="panel"><h2>Log</h2><div id="log" style="font:12px ui-monospace,Menlo,monospace;color:var(--muted);max-height:90px;overflow:auto"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ORIGIN = location.origin;
+const SANDBOX = (location.pathname.match(/\/s\/([^/]+)/)||[])[1] || 'gamemaster';
+const IS_GM = SANDBOX === 'gamemaster';
+const GM = `${ORIGIN}/s/gamemaster/p/calibration`;
+const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam`;
+const CORNERS = [33, 34, 35, 36];
+const gid = id => document.getElementById(id);
+
+let state = null;        // GM calibration session
+let SIDE = IS_GM ? null : SANDBOX;   // for players the side is fixed by the URL
+let CART = null;         // ${origin}/s/<side>/p/cartesian-xyz-test
+let detected = {};       // marker id -> {x,y} live ArUco pixel (original camera frame)
+let activeCorner = null; // marker armed for a manual (click) capture
+let flipped = false;     // VIEW flip only (180°), chosen by the game master. Camera
+                         // coords stay in the original frame regardless.
+let lastPose = null, armConnected = false, armEnabled = false, pumpMode = 'off';
+
+function log(m){ const e=gid('log'); const d=document.createElement('div'); d.textContent=`[${new Date().toLocaleTimeString()}] ${m}`; e.appendChild(d); e.scrollTop=e.scrollHeight; }
+async function jpost(url, body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{}}catch(_){}; if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; }
+async function jget(url){ const r=await fetch(url); return r.json(); }
+
+/* ---- pixel <-> display mapping (object-fit:contain) ---- */
+function imgGeom(){
+  const img = gid('webcamFeed'), rect = img.getBoundingClientRect();
+  const nW = img.naturalWidth, nH = img.naturalHeight;
+  if(!nW||!nH||!rect.width) return null;
+  const scale = Math.min(rect.width/nW, rect.height/nH);
+  return { rect, nW, nH, scale, offX:(rect.width-nW*scale)/2, offY:(rect.height-nH*scale)/2 };
+}
+// The IMAGE is rotated 180° when flipped; overlays are placed at the flipped
+// display position (so they track the image) but their labels stay upright, and
+// the stored/clicked pixel is ALWAYS in the original (un-flipped) camera frame.
+function pixelToDisplay(px, py){ const g=imgGeom(); if(!g) return null;
+  let dx=g.offX+px*g.scale, dy=g.offY+py*g.scale;
+  if(flipped){ dx=g.rect.width-dx; dy=g.rect.height-dy; }
+  return { left:dx, top:dy }; }
+function eventToPixel(ev){ const g=imgGeom(); if(!g) return null;
+  let rx=ev.clientX-g.rect.left, ry=ev.clientY-g.rect.top;
+  if(flipped){ rx=g.rect.width-rx; ry=g.rect.height-ry; }
+  const x=(rx-g.offX)/g.scale, y=(ry-g.offY)/g.scale;
+  if(x<0||y<0||x>g.nW||y>g.nH) return null; return { x:Math.round(x), y:Math.round(y) }; }
+function setFlipUI(){
+  gid('webcamFeed').style.transform = flipped ? 'rotate(180deg)' : '';
+  gid('flipInd').textContent = flipped ? 'view: flipped 180°' : 'view: normal';
+}
+
+/* ---- overlays: detected corner tags, captured pixels, active arm ---- */
+function renderOverlay(){
+  const wrap = gid('feedWrap');
+  wrap.querySelectorAll('.cross,.lbl').forEach(n=>n.remove());
+  const corners = (state&&state.corners)||{};
+  const add = (px,py,cls,label) => {
+    const d=pixelToDisplay(px,py); if(!d) return;
+    const c=document.createElement('div'); c.className='cross '+cls; c.style.left=d.left+'px'; c.style.top=d.top+'px'; wrap.appendChild(c);
+    if(label){ const l=document.createElement('div'); l.className='lbl'; l.style.left=d.left+'px'; l.style.top=d.top+'px'; l.textContent=label; l.style.color=getComputedStyle(c).color; wrap.appendChild(l); }
+  };
+  // Other detected tags (we draw our own metadata over the CLEAN image, so the
+  // clean stream still shows everything the camera sees).
+  for(const id in detected){ if(!CORNERS.includes(Number(id))) add(detected[id].x, detected[id].y, 'other', `#${id}`); }
+  CORNERS.forEach((m,i)=>{
+    const c = corners[String(m)]||{};
+    if(c.cam) add(c.cam.x, c.cam.y, 'cap'+(activeCorner===m?' active':''), `C${i+1}✓`);
+    else if(detected[m]) add(detected[m].x, detected[m].y, 'det'+(activeCorner===m?' active':''), `C${i+1} #${m}`);
+  });
+}
+
+/* ---- corner control rows ---- */
+function cornerName(m){ return 'Corner '+(CORNERS.indexOf(m)+1); }
+function renderCorners(){
+  const corners = (state&&state.corners)||{};
+  gid('cornersA').innerHTML = CORNERS.map(m=>{
+    const c = corners[String(m)]||{}; const det = !!detected[m]; const active = activeCorner===m;
+    const cam = c.cam ? `<span class="yes">px ${c.cam.x}, ${c.cam.y}</span> <span class="pill ${c.cam_src||'aruco'}">${c.cam_src||'aruco'}</span>` : (det?`<span class="sub">detected at ${detected[m].x}, ${detected[m].y}</span>`:'<span class="no">marker not visible</span>');
+    return `<div class="corner ${active?'active':''}" data-m="${m}">
+      <div class="hd"><span class="nm">${cornerName(m)}</span><span class="mk">#${m}</span><span class="st">${c.cam?'<span class="yes">✓ cam</span>':''}</span></div>
+      <div class="vals">${cam}</div>
+      <div class="row">
+        <button class="sm" data-act="auto" data-m="${m}" ${det?'':'disabled'}>Capture (ArUco)</button>
+        <button class="sm warn" data-act="click" data-m="${m}">${active?'Click image…':'Set by click'}</button>
+        ${c.cam?`<button class="sm" data-act="camclear" data-m="${m}">clear</button>`:''}
+      </div></div>`;
+  }).join('');
+  gid('cornersB').innerHTML = CORNERS.map(m=>{
+    const c = corners[String(m)]||{};
+    const rob = c.robot ? `<span class="yes">X ${c.robot.x}  Y ${c.robot.y}  Z ${c.robot.z}</span>` : '<span class="no">—</span>';
+    return `<div class="corner" data-m="${m}">
+      <div class="hd"><span class="nm">${cornerName(m)}</span><span class="mk">#${m}</span><span class="st">${c.robot?'<span class="yes">✓ xyz</span>':''}</span></div>
+      <div class="vals">${rob}</div>
+      <div class="row"><button class="sm" data-act="xyz" data-m="${m}" ${armConnected?'':'disabled'}>Capture XYZ here</button></div></div>`;
+  }).join('');
+  // wire row buttons
+  gid('cornersA').querySelectorAll('button').forEach(b=> b.onclick = ()=>cornerAction(b.dataset.act, Number(b.dataset.m)));
+  gid('cornersB').querySelectorAll('button').forEach(b=> b.onclick = ()=>cornerAction(b.dataset.act, Number(b.dataset.m)));
+}
+
+async function cornerAction(act, m){
+  try {
+    if(act==='auto'){ const d=detected[m]; if(!d){ log(`#${m} not detected`); return; } render(await jpost(`${GM}/api/cam`,{marker:m,x:d.x,y:d.y,src:'aruco'})); log(`${cornerName(m)} cam (ArUco) ${d.x},${d.y}`); activeCorner=null; }
+    else if(act==='click'){ activeCorner = (activeCorner===m?null:m); renderCorners(); renderOverlay(); }
+    else if(act==='camclear'){ const s=await jpost(`${GM}/api/clear`,{marker:m}); render(s); }   // clears whole corner
+    else if(act==='xyz'){ if(!lastPose){ log('no arm pose'); return; } render(await jpost(`${GM}/api/robot`,{marker:m,x:lastPose[0],y:lastPose[1],z:lastPose[2]})); log(`${cornerName(m)} XYZ ${lastPose.slice(0,3).map(v=>v.toFixed(1)).join(', ')}`); }
+  } catch(e){ log('✗ '+e.message); }
+}
+
+function onImageClick(ev){
+  if(activeCorner==null){ log('Pick "Set by click" on a corner first.'); return; }
+  const p = eventToPixel(ev); if(!p){ log('clicked outside image'); return; }
+  const m = activeCorner;
+  jpost(`${GM}/api/cam`,{marker:m,x:p.x,y:p.y,src:'manual'}).then(s=>{ render(s); log(`${cornerName(m)} cam (manual) ${p.x},${p.y}`); activeCorner=null; }).catch(e=>log('✗ '+e.message));
+}
+
+/* ---- arm (cartesian-xyz-test for SIDE) ---- */
+async function cart(path, body){ if(!CART) return {ok:false}; return jpost(`${CART}${path}`, body); }
+async function connectArm(){
+  if(!CART) return;
+  try {
+    const cfg = await jget(`${CART}/api/config`);
+    const host = cfg.relay_host_default || ORIGIN;
+    await jpost(`${CART}/api/connect`, { mode:'relay', host, side: SIDE });
+    log(`connect ${SIDE} via relay`);
+  } catch(e){ log('connect ✗ '+e.message); }
+}
+function applyArm(s){
+  armConnected = !!s.connected; armEnabled = !!s.enabled; pumpMode = s.pump_mode||'off';
+  if(Array.isArray(s.pose)) lastPose = s.pose;
+  gid('armPill').className = 'pill '+(armConnected?'on':'off');
+  gid('armPill').textContent = armConnected ? (armEnabled?'arm enabled':'arm connected') : 'arm offline';
+  gid('poseInd').textContent = lastPose ? `pose ${lastPose[0].toFixed(0)}, ${lastPose[1].toFixed(0)}, ${lastPose[2].toFixed(0)}` : 'pose —';
+  gid('btnVacOn').className = pumpMode==='suck'?'ok':'';
+}
+let armES = null;
+function watchArm(){
+  if(!CART) return;
+  if(armES) armES.close();
+  jget(`${CART}/api/status`).then(applyArm).catch(()=>{});
+  armES = new EventSource(`${CART}/api/events`);
+  armES.onmessage = e => { try{ applyArm(JSON.parse(e.data)); }catch(_){} };
+}
+
+/* ---- session gating ---- */
+function setSideContext(side){
+  if(IS_GM) SIDE = side;            // gamemaster follows the selected side
+  const active = SIDE && (IS_GM ? state.side===SIDE : state.side===SANDBOX);
+  gid('sideInd').innerHTML = SIDE ? `side <span class="sideTag ${SIDE}">${SIDE.toUpperCase()}</span>` : (IS_GM?'no side selected':`side ${SANDBOX}`);
+  gid('gate').hidden = !!active; gid('play').hidden = !active;
+  if(active && !CART){ CART = `${ORIGIN}/s/${SIDE}/p/cartesian-xyz-test`; watchArm(); }
+  if(!active){ gid('gateMsg').textContent = IS_GM ? 'Select a side on the operator page.' : `The game master is calibrating ${state.side||'no one'} — not ${SANDBOX}.`; }
+}
+
+function render(s){
+  state = s||{};
+  setSideContext(state.side);
+  flipped = ((state.flipped_side || null) === SIDE);   // master controls the flip
+  setFlipUI();
+  renderCorners(); renderOverlay(); refreshSave();
+}
+function refreshSave(){
+  const corners=(state&&state.corners)||{};
+  const done = CORNERS.every(m=>corners[String(m)]&&corners[String(m)].cam&&corners[String(m)].robot);
+  gid('saveHint').textContent = done ? 'All four corners captured.' : 'Capture cam pixel + robot XYZ for all four.';
+}
+
+async function pollTags(){
+  try {
+    const d = await jget(`${WEBCAM}/api/tags`);
+    const all = [...(d.tags||[]), ...(d.detections||[])];
+    const next = {};
+    for(const t of all){ if(next[t.id]===undefined) next[t.id] = { x:Math.round(t.x), y:Math.round(t.y) }; }
+    detected = next; renderCorners(); renderOverlay();
+  } catch(_){}
+}
+
+/* ---- save the CSV locally on the client's computer ---- */
+function buildCsv(){
+  const corners = (state&&state.corners)||{};
+  const rows = [['marker','pixel_x','pixel_y','robot_x','robot_y','robot_z']];
+  CORNERS.forEach(m=>{ const c=corners[String(m)]||{}, cam=c.cam||{}, rob=c.robot||{};
+    rows.push([m, cam.x??'', cam.y??'', rob.x??'', rob.y??'', rob.z??'']); });
+  return rows.map(r=>r.join(',')).join('\r\n')+'\r\n';
+}
+async function downloadCsv(){
+  const csv = buildCsv();
+  const suggested = `calibration-${SIDE || 'calibration'}.csv`;
+  // Native save dialog (pick name + location) where supported (Chromium, secure ctx).
+  if (window.showSaveFilePicker){
+    try {
+      const h = await window.showSaveFilePicker({ suggestedName: suggested,
+        types:[{ description:'CSV file', accept:{ 'text/csv':['.csv'] } }] });
+      const w = await h.createWritable(); await w.write(csv); await w.close();
+      log(`saved ${h.name}`); return;
+    } catch(e){ if(e.name === 'AbortError'){ log('save cancelled'); return; } }
+  }
+  // Fallback: ask for a filename, then download via the browser.
+  let name = prompt('Save CSV as:', suggested);
+  if(name === null){ log('save cancelled'); return; }
+  name = (name.trim() || suggested);
+  if(!/\.csv$/i.test(name)) name += '.csv';
+  const url = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  log(`saved ${name} to your computer`);
+}
+
+function init(){
+  const camSrc = () => `${WEBCAM}/api/stream?clean=1&t=${Date.now()}`;
+  const fw = gid('webcamFeed');
+  fw.src = camSrc();
+  fw.onerror = () => setTimeout(()=>{ fw.src = camSrc(); }, 1000);
+  fw.onload = renderOverlay;
+  gid('feedWrap').addEventListener('click', onImageClick);
+  gid('btnConnect').onclick = connectArm;
+  gid('btnEnable').onclick = () => cart('/api/enable',{}).then(()=>log('enable')).catch(e=>log('enable ✗ '+e.message));
+  gid('btnVacOn').onclick = () => cart('/api/pump',{mode:'suck'}).then(()=>log('vacuum on')).catch(e=>log(e.message));
+  gid('btnVacOff').onclick = () => cart('/api/pump',{mode:'off'}).then(()=>log('vacuum off')).catch(e=>log(e.message));
+  gid('btnSave').onclick = downloadCsv;
+  jget(`${GM}/api/state`).then(render).catch(()=>{});
+  const es = new EventSource(`${GM}/api/events`);
+  es.onmessage = e => { try{ render(JSON.parse(e.data)); }catch(_){} };
+  setInterval(pollTags, 400); pollTags();
+  window.addEventListener('resize', renderOverlay);
+}
+init();
+</script>
+</body>
+</html>

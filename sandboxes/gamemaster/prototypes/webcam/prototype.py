@@ -250,7 +250,8 @@ class CameraManager:
         self._index = None
         self._thread = None
         self._running = False
-        self._latest = None        # latest JPEG bytes
+        self._latest = None        # latest JPEG bytes (with detection overlay)
+        self._latest_clean = None  # latest JPEG bytes WITHOUT overlay (for /api/stream?clean=1)
         self._w = 0                # actual capture width
         self._h = 0                # actual capture height
         self._req_w = 0            # requested width
@@ -293,6 +294,7 @@ class CameraManager:
             self._req_w, self._req_h = width, height
             self._error = None
             self._latest = None
+            self._latest_clean = None
             self._fps = 0.0
             self._last_ts = 0.0
             self._running = True
@@ -316,6 +318,7 @@ class CameraManager:
         self._thread = None
         self._cap = None
         self._latest = None
+        self._latest_clean = None
         # release the lock while joining so the grab loop can exit its read()
         if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
             self._lock.release()
@@ -336,6 +339,13 @@ class CameraManager:
                     self._error = "camera returned no frame"
                 time.sleep(0.05)
                 continue
+            # Encode a CLEAN frame (no overlay) first, then draw the detection
+            # overlay in place for the normal stream. Consumers that draw their own
+            # metadata (e.g. the calibration view, which also flips the display) use
+            # ?clean=1 so nothing is baked into the pixels.
+            ok_c, buf_c = cv2.imencode(
+                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
+            )
             frame = self._process_frame(frame)
             ok, buf = cv2.imencode(
                 ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
@@ -345,6 +355,7 @@ class CameraManager:
             now = time.monotonic()
             with self._lock:
                 self._latest = buf.tobytes()
+                self._latest_clean = buf_c.tobytes() if ok_c else None
                 self._h, self._w = frame.shape[:2]
                 if self._last_ts:
                     inst = 1.0 / max(1e-6, now - self._last_ts)
@@ -388,8 +399,10 @@ class CameraManager:
         return frame
 
     # -- readers --------------------------------------------------------------
-    def latest_jpeg(self):
+    def latest_jpeg(self, clean=False):
         with self._lock:
+            if clean:
+                return self._latest_clean or self._latest or self._no_signal
             return self._latest or self._no_signal
 
     def status(self):
@@ -436,12 +449,12 @@ class CameraManager:
         with self._lock:
             return self._index
 
-    def mjpeg(self):
+    def mjpeg(self, clean=False):
         """Generator yielding the latest frame as a multipart MJPEG stream."""
         boundary = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
         period = 1.0 / STREAM_FPS
         while True:
-            frame = self.latest_jpeg()
+            frame = self.latest_jpeg(clean)
             yield boundary + frame + b"\r\n"
             time.sleep(period)
 
@@ -634,5 +647,6 @@ def api_stream():
         remembered = _load_settings()
         if remembered is not None:
             _mgr.open(remembered["index"], remembered["width"], remembered["height"])
-    return Response(_mgr.mjpeg(),
+    clean = request.args.get("clean") in ("1", "true", "yes")
+    return Response(_mgr.mjpeg(clean),
                     mimetype="multipart/x-mixed-replace; boundary=frame")

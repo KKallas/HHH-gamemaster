@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calibration — Operator</title>
+<link rel="stylesheet" href="/theme.css" />
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --txt:#e6e9ef; --muted:#8a93a6;
+    --accent:#4f9dff; --ok:#36c46b; --warn:#f5a623; --err:#ff5462; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width:1080px; margin:0 auto; padding:16px 20px 32px; }
+  .topbar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .topbar h1 { margin:0; font-size:18px; } .sub { color:var(--muted); font-size:12px; }
+  .layout { display:grid; grid-template-columns:1.1fr .9fr; gap:16px; align-items:start; }
+  @media (max-width:860px){ .layout{ grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  button { background:#232733; border:1px solid var(--line); color:var(--txt); padding:9px 14px; border-radius:6px; font:inherit; cursor:pointer; min-height:42px; }
+  button:hover:not(:disabled){ border-color:var(--accent); } button:disabled{ opacity:.4; cursor:not-allowed; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; min-height:0; padding:10px 18px; background:#13161c; color:#c6ccd8; font-weight:800; }
+  .seg button.green.active { background:#36e07c; color:#062; }
+  .seg button.purple.active { background:#b86bff; color:#2a0a4a; }
+  button.save { background:var(--ok); border-color:var(--ok); color:#07140a; font-weight:850; }
+  select { background:#0c0e12; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:6px; font:inherit; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .feedWrap { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:#030405; aspect-ratio:16/9; }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  td.mono { font-variant-numeric:tabular-nums; }
+  .yes { color:var(--ok); font-weight:800; } .no { color:var(--muted); }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+  .pill.aruco { background:#13321f; color:#36e07c; } .pill.manual { background:#3a2410; color:var(--warn); }
+  .hint { color:var(--muted); font-size:12px; margin-top:8px; }
+  a.dl { color:var(--accent); font-size:13px; text-decoration:none; } a.dl:hover{ text-decoration:underline; }
+  #status { font-size:13px; min-height:18px; }
+  .sideTag { font-weight:850; } .sideTag.green{ color:#36e07c; } .sideTag.purple{ color:#b86bff; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>Calibration</h1>
+    <span class="sub">Operator · pick a side, the other is kicked, then run the capture tool</span>
+    <span style="flex:1"></span>
+    <a class="dl" href="client" target="_blank">↗ open capture (client) page</a>
+  </div>
+
+  <div class="panel">
+    <h2>1 · Side under calibration</h2>
+    <div class="row">
+      <span class="seg" id="sideSeg">
+        <button type="button" class="green" data-side="green">Green</button>
+        <button type="button" class="purple" data-side="purple">Purple</button>
+      </span>
+      <button id="btnStop">Stop / restore</button>
+      <span style="flex:1"></span>
+      <button id="btnSetup">Re-draw markers</button>
+      <button id="btnRestore">Restore field</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="sub">Flip the picture for:
+        <select id="flipSel" style="margin-left:6px">
+          <option value="">none</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+        </select>
+      </label>
+      <span class="hint" style="margin:0">— that side's capture view turns 180° (camera coordinates stay put).</span>
+    </div>
+    <div class="hint" id="selHint">Selecting a side kicks the other and replaces the playfield with that side's 4 corner markers (green x −4…9, purple x −9…−4; field snapshotted first). “Stop / restore” puts the original field back. <span id="fieldState"></span></div>
+    <div id="status" class="hint"></div>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="panel">
+        <h2>2 · Corners <span class="sub" id="sideLabel"></span></h2>
+        <table>
+          <thead><tr><th>Corner</th><th>Marker</th><th>Camera px</th><th>Robot XYZ (mm)</th></tr></thead>
+          <tbody id="cornersBody"></tbody>
+        </table>
+        <div class="row" style="margin-top:12px">
+          <button id="btnClear">Clear all</button>
+          <span style="flex:1"></span>
+          <a class="dl" id="csvLink" href="api/download.csv" download style="margin-right:6px">⭳ CSV</a>
+          <button id="btnSave" class="save">Save calibration</button>
+        </div>
+        <div class="hint" id="saveHint"></div>
+      </div>
+    </section>
+    <section>
+      <div class="panel">
+        <h2>Live camera</h2>
+        <div class="feedWrap"><img id="webcamFeed" alt="live camera feed" /></div>
+        <div class="hint">Corner markers are ArUco 33–36 (the playfield corners). The capture page reads their pixels.</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const ORIGIN = location.origin;
+const GM   = `${ORIGIN}/s/gamemaster/p/calibration`;
+const RELAY= `${ORIGIN}/s/gamemaster/p/dobot-mg400-relay`;
+const AREAS= `${ORIGIN}/s/gamemaster/p/playfield-areas`;
+const WEBCAM = `${ORIGIN}/s/gamemaster/p/webcam/api/stream`;
+const CORNERS = [33, 34, 35, 36];
+const el = id => document.getElementById(id);
+let state = null;
+
+async function jreq(url, method, body) {
+  const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{}) });
+  const t = await r.text(); let d={}; try{ d=t?JSON.parse(t):{}; }catch(_){}
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+const jpost  = (url, body) => jreq(url, 'POST', body);
+const jpatch = (url, body) => jreq(url, 'PATCH', body);
+async function jget(url){ const r=await fetch(url); return r.json(); }
+function setStatus(m, err){ el('status').textContent=m||''; el('status').style.color= err?'var(--err)':'var(--muted)'; }
+
+function startWebcam(){ el('webcamFeed').src = `${WEBCAM}?t=${Date.now()}`; }
+
+function render(s){
+  state = s || {};
+  const side = state.side;
+  document.querySelectorAll('#sideSeg button').forEach(b => b.classList.toggle('active', b.dataset.side===side));
+  el('sideLabel').innerHTML = side ? `· <span class="sideTag ${side}">${side.toUpperCase()}</span>` : '· (no side selected)';
+  el('fieldState').textContent = state.field_active ? '· Calibration markers are on the playfield.' : '· Playfield is in its normal state.';
+  if (document.activeElement !== el('flipSel')) el('flipSel').value = state.flipped_side || '';
+  const corners = state.corners || {};
+  el('cornersBody').innerHTML = CORNERS.map((m,i) => {
+    const c = corners[String(m)] || {};
+    const cam = c.cam ? `<span class="mono">${c.cam.x}, ${c.cam.y}</span> <span class="pill ${c.cam_src||'aruco'}">${c.cam_src||'aruco'}</span>` : '<span class="no">—</span>';
+    const rob = c.robot ? `<span class="mono">${c.robot.x}, ${c.robot.y}, ${c.robot.z}</span>` : '<span class="no">—</span>';
+    const ok = c.cam && c.robot;
+    return `<tr><td>${ok?'<span class="yes">✓</span> ':''}Corner ${i+1}</td><td class="mono">${m}</td><td>${cam}</td><td>${rob}</td></tr>`;
+  }).join('');
+  const done = CORNERS.every(m => corners[String(m)] && corners[String(m)].cam && corners[String(m)].robot);
+  el('btnSave').disabled = !side;
+  el('saveHint').textContent = side ? (done ? 'All four corners captured — ready to save.' : 'Capture cam pixel + robot XYZ for all four corners (use the client page).') : '';
+}
+
+async function selectSide(side){
+  try {
+    setStatus(side ? `Selecting ${side}…` : 'Restoring field…');
+    const s = await jpost(`${GM}/api/select`, { side });
+    render(s);
+    const fm = s.field_msg ? ` ⚠ ${s.field_msg}` : '';
+    if (side){
+      const other = side === 'green' ? 'purple' : 'green';
+      try { await jpost(`${RELAY}/api/kick`, { side: other }); setStatus(`Calibrating ${side}. Kicked ${other}, markers drawn.${fm}`, !!s.field_msg); }
+      catch(e){ setStatus(`Calibrating ${side}. (kick ${other} failed: ${e.message})${fm}`, true); }
+    } else setStatus(`Stopped. Original field restored.${fm}`, !!s.field_msg);
+  } catch(e){ setStatus(e.message, true); }
+}
+
+function wire(){
+  document.querySelectorAll('#sideSeg button').forEach(b => b.onclick = () => selectSide(b.dataset.side));
+  el('btnStop').onclick = () => selectSide(null);
+  el('flipSel').onchange = async () => { try { render(await jpost(`${GM}/api/flip`, { side: el('flipSel').value || null })); setStatus(`Flip the picture for: ${el('flipSel').value||'none'}.`); } catch(e){ setStatus(e.message, true); } };
+  el('btnSetup').onclick = async () => { try { render(await jpost(`${GM}/api/field/setup`,{})); setStatus('Corner markers drawn on the playfield.'); } catch(e){ setStatus(e.message, true); } };
+  el('btnRestore').onclick = async () => { try { render(await jpost(`${GM}/api/field/restore`,{})); setStatus('Original playfield restored.'); } catch(e){ setStatus(e.message, true); } };
+  el('btnClear').onclick = async () => { try { render(await jpost(`${GM}/api/clear`, {})); } catch(e){ setStatus(e.message, true); } };
+  el('btnSave').onclick = async () => {
+    try { const r = await jpost(`${GM}/api/save`, {}); setStatus(`Saved ${r.file} + ${r.csv}${r.complete?'':' (incomplete)'}.`); }
+    catch(e){ setStatus(e.message, true); }
+  };
+}
+
+async function init(){
+  wire(); startWebcam();
+  el('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
+  try { render(await jget(`${GM}/api/state`)); } catch(_){}
+  const es = new EventSource(`${GM}/api/events`);
+  es.onmessage = e => { try { render(JSON.parse(e.data)); } catch(_){} };
+}
+init();
+</script>
+</body>
+</html>

@@ -374,6 +374,46 @@ def route_create_area():
         return jsonify({"ok": True, "area": area, "rev": _rev}), 201
 
 
+@bp.route("/api/replace", methods=["POST"])
+def route_replace_areas():
+    """Replace ALL areas verbatim from a list (ids + links preserved). Used by the
+    calibration machine to swap in the four corner markers and later restore the
+    exact field that was there before. Unknown fields are ignored; bad numeric
+    fields are clamped/skipped (never raises on one bad area)."""
+    global _next_id
+    data = request.json or {}
+    areas = data.get("areas")
+    if not isinstance(areas, list):
+        return jsonify({"ok": False, "error": "areas list required"}), 400
+    with _lock:
+        _store.clear()
+        max_n = 0
+        auto = 1
+        for a in areas:
+            if not isinstance(a, dict):
+                continue
+            area = _new_area()
+            for field in ("name", "x", "y", "z", "size", "color", "glow", "marker", *SHOW_FIELDS):
+                if field in a:
+                    try:
+                        area[field] = _coerce(field, a[field])
+                    except (ValueError, KeyError):
+                        pass
+            if isinstance(a.get("links"), list):
+                area["links"] = [str(x) for x in a["links"]][:64]
+            aid = str(a.get("id") or "")
+            if not aid:
+                aid = f"a{auto}"
+                auto += 1
+            area["id"] = aid
+            if aid[1:].isdigit() and aid[0] == "a":
+                max_n = max(max_n, int(aid[1:]))
+            _store[aid] = area
+        _next_id = max(_next_id, max_n + 1, auto)
+        _touch()
+        return jsonify({"ok": True, "rev": _rev, "count": len(_store)})
+
+
 @bp.route("/api/areas/<area_id>", methods=["GET"])
 def get_area(area_id):
     with _lock:
