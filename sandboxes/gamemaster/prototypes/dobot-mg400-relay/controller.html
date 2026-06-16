@@ -128,6 +128,7 @@
       <input type="text" class="lip" title="fixed IP of this side's USB dongle — the interface to pin to is auto-detected from it" />
       <button class="primary btnConnect">Connect</button>
       <button class="btnDisconnect">Disconnect</button>
+      <button class="btnReset" title="Rebuild this side's link and re-arm the follower WITHOUT power-cycling the robot — use after a fault/wedge or 'press Enable to resume'">Reset driver</button>
     </div>
     <div style="margin-top:12px">
       <div class="line"><span class="lab">Robot mode</span><span class="sMode">—</span></div>
@@ -181,6 +182,7 @@ function buildCards(defaults) {
     lip.value = ((defaults && defaults[side]) || {}).local_ip || "";
     q(".btnConnect").onclick = () => api("/api/connect", { side, local_ip: lip.value.trim() });
     q(".btnDisconnect").onclick = () => api("/api/disconnect", { side });
+    q(".btnReset").onclick = () => api("/api/reset", { side });
     q(".btnKick").onclick = () => api("/api/kick", { side });
     host.appendChild(node);
     cards[side] = {

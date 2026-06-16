@@ -680,6 +680,63 @@ def disconnect():
     return _ok(side=side)
 
 
+@bp.route("/api/reset", methods=["POST"])
+def reset():
+    """Reset a side's DRIVER without power-cycling the robot. Rebuilds the TCP link
+    (graceful StopRobot first so the arm doesn't lurch), then clears errors, re-
+    enables, and restarts the follower seeded at the CURRENT pose. Use after a
+    fault/wedge or the follower's "press Enable to resume" — recovers the software
+    side as long as the robot itself is still alive on the network."""
+    data = request.json or {}
+    _log_incoming("reset", data)
+    side = _side_from(data)
+    if side is None:
+        _log_incoming("reset", data, ok=False, error="side must be 'purple' or 'green'")
+        return _fail("side must be 'purple' or 'green'")
+    link = _last_link.get(side) or {
+        "ip": ROBOT_IP, "local_ip": DEFAULT_LINKS[side]["local_ip"], "iface": None,
+    }
+    with _arm_locks[side]:
+        old = _robots[side]
+        if old is not None:
+            try:
+                old.close()          # close() already does a graceful StopRobot
+            except Exception:         # pragma: no cover - defensive
+                pass
+            _robots[side] = None
+        robot = DobotMG400(link["ip"], iface=link.get("iface"), local_ip=link.get("local_ip"))
+        try:
+            robot.connect()
+        except DobotError as e:
+            _log_command("robot", side, "reset/connect", link, ok=False, error=str(e))
+            return _fail(f"reset could not reconnect {side}: {e}", errid=e.errid)
+        _robots[side] = robot
+        _last_link[side] = {"ip": robot.ip, "local_ip": robot.local_ip, "iface": robot.iface}
+    # Clear faults + re-arm a clean follower seeded at the current pose (mirrors
+    # /api/enable, which seeds from live feedback so there's no jump).
+    with _arb_lock:
+        mode = _sides[side]["mode"] if _sides[side]["token"] is not None else "joint"
+    try:
+        robot.clear_error()
+    except DobotError:
+        pass
+    try:
+        errid, resp = robot.enable()
+    except DobotError as e:
+        errid, resp = e.errid, str(e)
+    if errid == 0:
+        try:
+            robot.start_servo(mode)
+            _apply_motion(robot, mode)
+            _log_command("robot", side, "reset (reconnect + enable)", {"mode": mode}, ok=True)
+        except DobotError as e:
+            _log_command("robot", side, "reset/start_servo", {"mode": mode}, ok=False, error=str(e))
+    else:
+        _log_command("robot", side, "reset/enable", {"errid": errid, "resp": resp}, ok=False)
+    _live.bump()
+    return jsonify({"ok": errid == 0, "errid": errid, "resp": resp, "side": side})
+
+
 @bp.route("/api/clear_error", methods=["POST"])
 def clear_error():
     """Clear alarms/warnings on that side's arm without enabling or moving it."""
