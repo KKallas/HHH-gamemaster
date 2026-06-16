@@ -35,6 +35,8 @@ from relay_arm import DobotMG400, DobotError  # noqa: E402
 
 LOG_PATH = os.path.join(HERE, "auto-pickup-log.csv")
 CALIBRATION_PATH = os.path.join(HERE, "auto-calibration.json")
+PLAYFIELD_SNAPSHOT_PATH = os.path.join(HERE, "auto-playfield.json")
+HIGHSCORE_RESET_PATH = os.path.join(HERE, "auto-highscore-reset.json")
 LOG_FIELDS = [
     "logged_at", "player", "team", "elapsed_seconds",
     "started_at", "completed_at",
@@ -52,6 +54,9 @@ PLAYFIELD_MARKERS = CALIBRATION_POINTS + (
 CORNER_KEYS = tuple(key for key, _label, _u, _v, _marker in CALIBRATION_POINTS)
 CORNER_MARKERS = tuple(marker for _key, _label, _u, _v, marker in CALIBRATION_POINTS)
 CENTER_MARKER = 24
+CALIBRATION_TAG_SIZE = 2.8
+CALIBRATION_TAG_SPAN_X = 7.5
+CALIBRATION_TAG_SPAN_Z = 4.0
 ROBOT_IP = "192.168.1.6"
 DEFAULT_LINKS = {
     "purple": {"local_ip": "192.168.1.50"},
@@ -86,6 +91,10 @@ _live = live.LiveState()
 _hub_ctx = None
 _direct_robots = {side: None for side in TEAMS}
 _direct_locks = {side: threading.Lock() for side in TEAMS}
+_calibration_access = {
+    side: {"enabled": False, "updated_at": None}
+    for side in TEAMS
+}
 
 
 def _team_state():
@@ -103,6 +112,7 @@ _state = {
     "best_seconds": None,
     "best_player": "",
     "best_team": "",
+    "highscore_reset_at": 0.0,
     "updated_at": time.time(),
 }
 
@@ -114,6 +124,8 @@ def _empty_pose():
 def _default_calibration():
     return {
         "playfield": {
+            "active_area": {"sMin": 0.0, "sMax": 1.0, "tMin": 0.0, "tMax": 1.0},
+            "marker_cache": None,
             "areas": {
                 key: {
                     "key": key,
@@ -144,6 +156,10 @@ def _default_calibration():
                     for key, label, u, v, marker in CALIBRATION_POINTS
                 },
                 "center": _empty_pose(),
+                "corner_map": {
+                    key: marker for key, _label, _u, _v, marker in CALIBRATION_POINTS
+                },
+                "marker_cache": None,
                 "pickup_height": {"set": False, "z": None},
                 "transport_height": {"set": False, "z": None},
                 "updated_at": None,
@@ -173,6 +189,14 @@ def _player_side():
     return ""
 
 
+def _referrer_side():
+    ref = request.headers.get("Referer") or request.headers.get("Referrer") or ""
+    for side in TEAMS:
+        if f"/s/{side}/" in ref:
+            return side
+    return ""
+
+
 def _requested_team(data):
     """The team the caller is allowed to act on: operator may name any team,
     a player only their own."""
@@ -199,11 +223,43 @@ def _read_log_rows():
     return rows
 
 
+def _row_logged_at(row):
+    raw = row.get("logged_at")
+    if not raw:
+        return 0.0
+    try:
+        return _dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _load_highscore_reset_at():
+    try:
+        with open(HIGHSCORE_RESET_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return float(data.get("reset_at", 0.0))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return 0.0
+
+
+def _save_highscore_reset_at(reset_at):
+    with open(HIGHSCORE_RESET_PATH, "w", encoding="utf-8") as fh:
+        json.dump({"reset_at": reset_at}, fh, indent=2)
+
+
+def _highscore_rows(rows=None):
+    reset_at = float(_state.get("highscore_reset_at") or 0.0)
+    source = _read_log_rows() if rows is None else rows
+    if reset_at <= 0:
+        return list(source)
+    return [row for row in source if _row_logged_at(row) > reset_at]
+
+
 def _seed_best_from_log():
     best = None
     best_player = ""
     best_team = ""
-    for row in _read_log_rows():
+    for row in _highscore_rows():
         secs = row.get("elapsed_seconds")
         if best is None or secs < best:
             best = secs
@@ -212,6 +268,16 @@ def _seed_best_from_log():
     _state["best_seconds"] = best
     _state["best_player"] = best_player
     _state["best_team"] = best_team
+
+
+def _top_score_rows(rows, limit=10):
+    return sorted(
+        rows,
+        key=lambda row: (
+            float(row.get("elapsed_seconds", float("inf"))),
+            str(row.get("logged_at") or ""),
+        ),
+    )[:limit]
 
 
 def _public_state_locked():
@@ -258,6 +324,93 @@ def _clean_corner_map(value):
         out[key] = marker
         used.add(marker)
     return out
+
+
+def _clean_active_area(value):
+    if not isinstance(value, dict):
+        raise ValueError("active area required")
+    try:
+        s_min = float(value["sMin"])
+        s_max = float(value["sMax"])
+        t_min = float(value["tMin"])
+        t_max = float(value["tMax"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("active area requires numeric sMin, sMax, tMin, tMax")
+    lo = -0.42
+    hi = 1.42
+    s_min = _clamp(s_min, lo, hi)
+    s_max = _clamp(s_max, lo, hi)
+    t_min = _clamp(t_min, lo, hi)
+    t_max = _clamp(t_max, lo, hi)
+    if s_max - s_min < 0.05 or t_max - t_min < 0.05:
+        raise ValueError("active area is too small")
+    return {
+        "sMin": round(s_min, 4),
+        "sMax": round(s_max, 4),
+        "tMin": round(t_min, 4),
+        "tMax": round(t_max, 4),
+    }
+
+
+def _clean_marker_cache(value):
+    if not isinstance(value, dict):
+        raise ValueError("marker cache required")
+    tags = value.get("tags")
+    if not isinstance(tags, dict):
+        raise ValueError("marker cache requires tags")
+    out_tags = {}
+    for key in ("top_left", "top_right", "bottom_right", "bottom_left", "center"):
+        tag = tags.get(key)
+        if not isinstance(tag, dict):
+            raise ValueError(f"{key.replace('_', ' ')} marker cache required")
+        try:
+            nx = _clamp(float(tag["nx"]), 0.0, 1.0)
+            ny = _clamp(float(tag["ny"]), 0.0, 1.0)
+            marker_id = int(tag.get("id", tag.get("marker", 0)))
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"{key.replace('_', ' ')} marker cache requires numeric nx and ny")
+        out_tags[key] = {
+            "id": marker_id,
+            "nx": round(nx, 6),
+            "ny": round(ny, 6),
+            "missing": 0.0,
+        }
+    captured_at = value.get("capturedAt", value.get("captured_at", value.get("captured_at_ms")))
+    try:
+        captured_at = int(float(captured_at))
+    except (TypeError, ValueError):
+        captured_at = int(time.time() * 1000)
+    camera_view = str(value.get("cameraView") or value.get("camera_view") or "normal")
+    if camera_view not in ("normal", "rot180"):
+        camera_view = "normal"
+    return {"tags": out_tags, "capturedAt": captured_at, "cameraView": camera_view}
+
+
+def _calibration_side(data):
+    data = data if isinstance(data, dict) else {}
+    side = (
+        data.get("side")
+        or data.get("team")
+        or request.values.get("side")
+        or request.values.get("team")
+        or request.headers.get("X-HHH-Team")
+        or request.headers.get("X-Team")
+    )
+    side = str(side or "").strip().lower()
+    player = _player_side()
+    if side in TEAMS:
+        if _is_operator() or player == side:
+            return side
+    if player in TEAMS and (not side or side == player):
+        return player
+    if _is_operator():
+        hint = _referrer_side()
+        if hint in TEAMS:
+            return hint
+    active = [team for team in TEAMS if _calibration_access.get(team, {}).get("enabled")]
+    if len(active) == 1:
+        return active[0]
+    return None
 
 
 def _ok(**kw):
@@ -353,6 +506,19 @@ def _calibration_from_saved(saved):
         return base
     saved_playfield = saved.get("playfield") if isinstance(saved.get("playfield"), dict) else {}
     saved_areas = saved_playfield.get("areas") if isinstance(saved_playfield.get("areas"), dict) else {}
+    try:
+        base["playfield"]["active_area"] = _clean_active_area(saved_playfield.get("active_area"))
+    except ValueError:
+        active_area = saved.get("active_area")
+        if isinstance(active_area, dict):
+            try:
+                base["playfield"]["active_area"] = _clean_active_area(active_area)
+            except ValueError:
+                pass
+    try:
+        base["playfield"]["marker_cache"] = _clean_marker_cache(saved_playfield.get("marker_cache"))
+    except ValueError:
+        pass
     for key in base["playfield"]["areas"]:
         area = saved_areas.get(key)
         if isinstance(area, dict):
@@ -361,12 +527,21 @@ def _calibration_from_saved(saved):
         base["playfield"]["corner_map"] = _clean_corner_map(saved_playfield.get("corner_map"))
     except ValueError:
         pass
+    global_corner_map = base["playfield"]["corner_map"]
     base["playfield"]["updated_at"] = saved_playfield.get("updated_at")
     saved_arms = saved.get("arms") if isinstance(saved.get("arms"), dict) else saved
     for side in TEAMS:
         src = saved_arms.get(side) if isinstance(saved_arms, dict) else None
         if not isinstance(src, dict):
             continue
+        try:
+            base["arms"][side]["corner_map"] = _clean_corner_map(src.get("corner_map"))
+        except ValueError:
+            base["arms"][side]["corner_map"] = dict(global_corner_map)
+        try:
+            base["arms"][side]["marker_cache"] = _clean_marker_cache(src.get("marker_cache"))
+        except ValueError:
+            pass
         for key in base["arms"][side]["points"]:
             pose = (((src.get("points") or {}).get(key) or {}).get("pose"))
             if isinstance(pose, dict) and pose.get("set"):
@@ -416,6 +591,22 @@ def _calibration_public():
         return json.loads(json.dumps(_calibration))
 
 
+def _calibration_access_public():
+    return {
+        "active_side": next((side for side in TEAMS if _calibration_access[side]["enabled"]), ""),
+        "teams": {side: dict(_calibration_access[side]) for side in TEAMS},
+    }
+
+
+def _calibration_write_allowed(data=None):
+    if _is_operator():
+        return True, None
+    side = _player_side()
+    if side in TEAMS and _calibration_access[side]["enabled"]:
+        return True, None
+    return False, f"{side or 'player'} calibration is not enabled by the gamemaster"
+
+
 def hub_init(ctx):
     global _hub_ctx
     _hub_ctx = ctx
@@ -426,14 +617,24 @@ def _playfield_module():
     return _hub_ctx.get_prototype("playfield-areas") if _hub_ctx is not None else None
 
 
+def _relay_module():
+    return _hub_ctx.get_prototype("dobot-mg400-relay") if _hub_ctx is not None else None
+
+
+def _kick_relay_side(side):
+    relay = _relay_module()
+    if relay is None or not hasattr(relay, "kick_side"):
+        return False
+    return bool(relay.kick_side(side))
+
+
 def _playfield_pose_for(key):
-    # Calibration markers are mirrored around the center tag. In the filmed
-    # playfield orientation, the lower-right marker lands at x=-2, z=-1.
+    # Calibration markers are mirrored around the center tag.
     return {
-        "top_left": {"x": 2.0, "z": 1.0},
-        "top_right": {"x": -2.0, "z": 1.0},
-        "bottom_right": {"x": -2.0, "z": -1.0},
-        "bottom_left": {"x": 2.0, "z": -1.0},
+        "top_left": {"x": CALIBRATION_TAG_SPAN_X, "z": CALIBRATION_TAG_SPAN_Z},
+        "top_right": {"x": -CALIBRATION_TAG_SPAN_X, "z": CALIBRATION_TAG_SPAN_Z},
+        "bottom_right": {"x": -CALIBRATION_TAG_SPAN_X, "z": -CALIBRATION_TAG_SPAN_Z},
+        "bottom_left": {"x": CALIBRATION_TAG_SPAN_X, "z": -CALIBRATION_TAG_SPAN_Z},
         "center": {"x": 0.0, "z": 0.0},
     }[key]
 
@@ -454,9 +655,12 @@ def _ensure_playfield_calibration_areas():
     playfield = _playfield_module()
     if playfield is None:
         return False, "Playfield Areas prototype is not loaded"
-    existing = {a.get("id"): a for a in playfield.list_areas()}
-    by_name = {a.get("name"): a for a in existing.values()}
-    changed = False
+    if not hasattr(playfield, "remove_area"):
+        return False, "Playfield Areas controller cannot delete areas"
+    for area in list(playfield.list_areas()):
+        area_id = area.get("id")
+        if area_id:
+            playfield.remove_area(area_id)
     with _calibration_lock:
         for key, area_ref in _calibration["playfield"]["areas"].items():
             label = area_ref["label"]
@@ -467,7 +671,7 @@ def _ensure_playfield_calibration_areas():
                 "x": pos["x"],
                 "y": 0.02,
                 "z": pos["z"],
-                "size": 0.8,
+                "size": CALIBRATION_TAG_SIZE,
                 "color": "#ffffff",
                 "glow": 0.0,
                 "marker": area_ref["marker"],
@@ -475,23 +679,40 @@ def _ensure_playfield_calibration_areas():
                 "show_aruco": True,
                 "show_links": False,
             }
-            area_id = area_ref.get("area_id")
-            area = existing.get(area_id) if area_id else None
-            if area is None:
-                area = by_name.get(name)
-            if area is None:
-                area = playfield.create_area(**fields)
-            else:
-                area = playfield.update_area(area["id"], **fields)
-            if area and area_ref.get("area_id") != area["id"]:
+            area = playfield.create_area(**fields)
+            if area:
                 area_ref["area_id"] = area["id"]
-                changed = True
+        _calibration["playfield"]["marker_cache"] = None
         _calibration["playfield"]["updated_at"] = time.time()
         _save_calibration()
     _reset_playfield_camera(playfield)
     if hasattr(playfield, "save_areas_now"):
         playfield.save_areas_now()
     return True, None
+
+
+def _saved_playfield_payload(areas):
+    return {
+        "format": "auto-pick-and-place-playfield-v1",
+        "saved_at": _dt.datetime.now(_dt.UTC).isoformat(),
+        "areas": json.loads(json.dumps(areas)),
+    }
+
+
+def _sync_calibration_area_refs(areas):
+    by_name = {area.get("name"): area.get("id") for area in areas if isinstance(area, dict)}
+    with _calibration_lock:
+        changed = False
+        for key, area_ref in _calibration["playfield"]["areas"].items():
+            name = f"Auto Pick Calibration - {area_ref['label']}"
+            area_id = by_name.get(name)
+            if area_id and area_ref.get("area_id") != area_id:
+                area_ref["area_id"] = area_id
+                changed = True
+        if changed:
+            _calibration["playfield"]["updated_at"] = time.time()
+            _save_calibration()
+        return json.loads(json.dumps(_calibration))
 
 
 @bp.route("/")
@@ -514,31 +735,168 @@ def api_events():
 
 @bp.route("/api/calibration")
 def api_calibration():
-    return jsonify({"ok": True, "calibration": _calibration_public()})
+    return jsonify({
+        "ok": True,
+        "calibration": _calibration_public(),
+        "access": _calibration_access_public(),
+    })
+
+
+@bp.route("/api/calibration/access", methods=["GET", "POST"])
+def api_calibration_access():
+    if request.method == "GET":
+        return jsonify({"ok": True, "access": _calibration_access_public()})
+    if not _is_operator():
+        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    data = request.get_json(silent=True) or {}
+    side = data.get("side") or data.get("team")
+    if side not in TEAMS:
+        return jsonify({"ok": False, "error": "team required"}), 400
+    enabled = bool(data.get("enabled", True))
+    now = time.time()
+    kicked = []
+    if enabled:
+        for other in TEAMS:
+            _calibration_access[other]["enabled"] = other == side
+            _calibration_access[other]["updated_at"] = now
+            if other != side and _kick_relay_side(other):
+                kicked.append(other)
+    else:
+        _calibration_access[side]["enabled"] = False
+        _calibration_access[side]["updated_at"] = now
+    _live.bump()
+    return jsonify({"ok": True, "access": _calibration_access_public(), "kicked": kicked})
 
 
 @bp.route("/api/calibration/playfield", methods=["POST"])
 def api_calibration_playfield():
-    if not _is_operator():
-        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    ok, err = _calibration_write_allowed()
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 403
     ok, err = _ensure_playfield_calibration_areas()
     if not ok:
         return jsonify({"ok": False, "error": err}), 409
     return jsonify({"ok": True, "calibration": _calibration_public()})
 
 
-@bp.route("/api/calibration/corner-map", methods=["POST"])
-def api_calibration_corner_map():
+@bp.route("/api/playfield/save", methods=["POST"])
+def api_playfield_save():
     if not _is_operator():
         return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    playfield = _playfield_module()
+    if playfield is None or not hasattr(playfield, "list_areas"):
+        return jsonify({"ok": False, "error": "Playfield Areas prototype is not loaded"}), 409
+    areas = playfield.list_areas()
+    payload = _saved_playfield_payload(areas)
+    try:
+        with open(PLAYFIELD_SNAPSHOT_PATH, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+    except OSError as e:
+        return jsonify({"ok": False, "error": f"could not save playfield: {e}"}), 500
+    return jsonify({
+        "ok": True,
+        "count": len(payload["areas"]),
+        "saved_at": payload["saved_at"],
+    })
+
+
+@bp.route("/api/playfield/load", methods=["POST"])
+def api_playfield_load():
+    if not _is_operator():
+        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    playfield = _playfield_module()
+    if playfield is None or not hasattr(playfield, "replace_areas"):
+        return jsonify({"ok": False, "error": "Playfield Areas controller cannot replace areas"}), 409
+    try:
+        with open(PLAYFIELD_SNAPSHOT_PATH, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "no saved playfield yet"}), 404
+    except (OSError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"could not read saved playfield: {e}"}), 500
+    areas = payload.get("areas")
+    if not isinstance(areas, list):
+        return jsonify({"ok": False, "error": "saved playfield is missing areas"}), 400
+    try:
+        loaded = playfield.replace_areas(areas)
+    except (ValueError, KeyError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"could not load playfield: {e}"}), 400
+    if hasattr(playfield, "save_areas_now"):
+        playfield.save_areas_now()
+    calibration = _sync_calibration_area_refs(loaded)
+    _live.bump()
+    return jsonify({
+        "ok": True,
+        "count": len(loaded),
+        "saved_at": payload.get("saved_at"),
+        "calibration": calibration,
+    })
+
+
+@bp.route("/api/calibration/corner-map", methods=["POST"])
+def api_calibration_corner_map():
+    ok, err = _calibration_write_allowed()
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 403
     data = request.get_json(silent=True) or {}
+    side = _calibration_side(data)
     try:
         corner_map = _clean_corner_map(data.get("corner_map"))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     with _calibration_lock:
-        _calibration["playfield"]["corner_map"] = corner_map
+        if side in TEAMS:
+            _calibration["arms"][side]["corner_map"] = corner_map
+            _calibration["arms"][side]["marker_cache"] = None
+            _calibration["arms"][side]["updated_at"] = time.time()
+        else:
+            _calibration["playfield"]["corner_map"] = corner_map
+            _calibration["playfield"]["marker_cache"] = None
+            _calibration["playfield"]["updated_at"] = time.time()
+        _save_calibration()
+        out = json.loads(json.dumps(_calibration))
+    _live.bump()
+    return jsonify({"ok": True, "calibration": out})
+
+
+@bp.route("/api/calibration/active-area", methods=["POST"])
+def api_calibration_active_area():
+    ok, err = _calibration_write_allowed()
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        active_area = _clean_active_area(data.get("active_area"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    with _calibration_lock:
+        _calibration["playfield"]["active_area"] = active_area
         _calibration["playfield"]["updated_at"] = time.time()
+        _save_calibration()
+        out = json.loads(json.dumps(_calibration))
+    _live.bump()
+    return jsonify({"ok": True, "calibration": out})
+
+
+@bp.route("/api/calibration/marker-cache", methods=["POST"])
+def api_calibration_marker_cache():
+    if not (_is_operator() or _player_side() in TEAMS):
+        return jsonify({"ok": False, "error": "team or gamemaster required"}), 403
+    data = request.get_json(silent=True) or {}
+    side = _calibration_side(data)
+    if side is None and not _is_operator():
+        side = _player_side()
+    try:
+        marker_cache = _clean_marker_cache(data.get("marker_cache"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    with _calibration_lock:
+        if side in TEAMS:
+            _calibration["arms"][side]["marker_cache"] = marker_cache
+            _calibration["arms"][side]["updated_at"] = time.time()
+        else:
+            _calibration["playfield"]["marker_cache"] = marker_cache
+            _calibration["playfield"]["updated_at"] = time.time()
         _save_calibration()
         out = json.loads(json.dumps(_calibration))
     _live.bump()
@@ -547,10 +905,10 @@ def api_calibration_corner_map():
 
 @bp.route("/api/calibration/export.zip", methods=["POST"])
 def api_calibration_export_zip():
-    if not _is_operator():
-        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    if not (_is_operator() or _player_side() in TEAMS):
+        return jsonify({"ok": False, "error": "team or gamemaster required"}), 403
     data = request.get_json(silent=True) or {}
-    active_area = data.get("active_area") if isinstance(data.get("active_area"), dict) else {}
+    active_area = data.get("active_area") if isinstance(data.get("active_area"), dict) else _calibration_public().get("playfield", {}).get("active_area", {})
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
@@ -576,8 +934,10 @@ def api_calibration_export_zip():
 @bp.route("/api/calibration/import.zip", methods=["POST"])
 def api_calibration_import_zip():
     global _calibration
-    if not _is_operator():
-        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    player_side = _player_side()
+    ok, err = _calibration_write_allowed()
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 403
     upload = request.files.get("file")
     if upload is None:
         return jsonify({"ok": False, "error": "zip file required"}), 400
@@ -595,7 +955,17 @@ def api_calibration_import_zip():
     except (OSError, UnicodeDecodeError, zipfile.BadZipFile, json.JSONDecodeError) as e:
         return jsonify({"ok": False, "error": f"invalid calibration zip: {e}"}), 400
     with _calibration_lock:
-        _calibration = _calibration_from_saved(saved)
+        imported = _calibration_from_saved(saved)
+        if _is_operator():
+            _calibration = imported
+        else:
+            _calibration["playfield"] = imported["playfield"]
+            _calibration["arms"][player_side] = imported["arms"][player_side]
+        if active_area:
+            try:
+                _calibration["playfield"]["active_area"] = _clean_active_area(active_area)
+            except ValueError:
+                pass
         _save_calibration()
         out = json.loads(json.dumps(_calibration))
     _live.bump()
@@ -604,13 +974,20 @@ def api_calibration_import_zip():
 
 @bp.route("/api/calibration/capture", methods=["POST"])
 def api_calibration_capture():
-    if not _is_operator():
-        return jsonify({"ok": False, "error": "gamemaster required"}), 403
     data = request.get_json(silent=True) or {}
-    side = data.get("side")
+    side = _calibration_side(data)
     target = data.get("target")
     if side not in TEAMS:
-        return jsonify({"ok": False, "error": "team required"}), 400
+        return jsonify({
+            "ok": False,
+            "error": "team required",
+            "received_side": data.get("side") if isinstance(data, dict) else None,
+            "received_team": data.get("team") if isinstance(data, dict) else None,
+            "role_side": _player_side(),
+            "referrer_side": _referrer_side(),
+        }), 403
+    if not _is_operator() and not _calibration_access[side]["enabled"]:
+        return jsonify({"ok": False, "error": f"{side} calibration is not enabled by the gamemaster"}), 403
     if not isinstance(target, str):
         return jsonify({"ok": False, "error": "target required"}), 400
     now = time.time()
@@ -644,12 +1021,12 @@ def api_calibration_capture():
 
 @bp.route("/api/calibration/reset", methods=["POST"])
 def api_calibration_reset():
-    if not _is_operator():
-        return jsonify({"ok": False, "error": "gamemaster required"}), 403
     data = request.get_json(silent=True) or {}
-    side = data.get("side")
+    side = _calibration_side(data)
     if side not in TEAMS:
-        return jsonify({"ok": False, "error": "team required"}), 400
+        return jsonify({"ok": False, "error": "team required"}), 403
+    if not _is_operator() and not _calibration_access[side]["enabled"]:
+        return jsonify({"ok": False, "error": f"{side} calibration is not enabled by the gamemaster"}), 403
     with _calibration_lock:
         _calibration["arms"][side] = _default_calibration()["arms"][side]
         _save_calibration()
@@ -921,14 +1298,39 @@ def api_reset():
 @bp.route("/api/results")
 def api_results():
     rows = _read_log_rows()
-    rows.reverse()
+    top = _top_score_rows(_highscore_rows(rows))
+    recent = list(rows)
+    recent.reverse()
     with _state_lock:
         best = {
             "seconds": _state["best_seconds"],
             "player": _state["best_player"],
             "team": _state["best_team"],
         }
-    return jsonify({"results": rows[:50], "best": best, "count": len(rows)})
+    return jsonify({
+        "results": recent[:50],
+        "top": top,
+        "best": best,
+        "count": len(rows),
+        "highscore_reset_at": _state.get("highscore_reset_at") or 0.0,
+    })
+
+
+@bp.route("/api/results/reset-highscores", methods=["POST"])
+def api_reset_highscores():
+    if not _is_operator():
+        return jsonify({"ok": False, "error": "gamemaster required"}), 403
+    now = time.time()
+    with _state_lock:
+        _state["highscore_reset_at"] = now
+        _state["best_seconds"] = None
+        _state["best_player"] = ""
+        _state["best_team"] = ""
+        _state["updated_at"] = now
+        _save_highscore_reset_at(now)
+        out = _public_state_locked()
+    _live.bump()
+    return jsonify({"ok": True, "state": out})
 
 
 @bp.route("/api/log.csv")
@@ -948,4 +1350,5 @@ def api_log_csv():
 
 
 _load_calibration()
+_state["highscore_reset_at"] = _load_highscore_reset_at()
 _seed_best_from_log()

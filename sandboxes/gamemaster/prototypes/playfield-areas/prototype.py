@@ -183,7 +183,36 @@ def remove_area(area_id):
 
 def list_areas():
     with _lock:
-        return list(_store.values())
+        return [dict(area) for area in _store.values()]
+
+
+def replace_areas(areas):
+    """Replace the whole playfield with a saved area list, preserving ids."""
+    global _next_id
+    if not isinstance(areas, list):
+        raise ValueError("areas must be a list")
+    next_store = {}
+    highest_num = 0
+    for raw in areas:
+        if not isinstance(raw, dict) or "id" not in raw:
+            raise ValueError("each area needs an id")
+        area = _new_area()
+        area["id"] = str(raw["id"])
+        _apply(area, raw)
+        next_store[area["id"]] = area
+        if area["id"].startswith("a"):
+            try:
+                highest_num = max(highest_num, int(area["id"][1:]))
+            except ValueError:
+                pass
+    for area in next_store.values():
+        area["links"] = [t for t in area.get("links", []) if t in next_store]
+    with _lock:
+        _store.clear()
+        _store.update(next_store)
+        _next_id = max(_next_id, highest_num + 1)
+        _touch()
+        return [dict(area) for area in _store.values()]
 
 
 def add_link(area_id, to):

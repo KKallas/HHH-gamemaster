@@ -38,6 +38,8 @@
   .moveZoneLayer[hidden] { display:none; }
   .clickDot { position:absolute; width:16px; height:16px; border:3px solid var(--accent); border-radius:50%; transform:translate(-50%, -50%); box-shadow:0 0 0 9999px rgba(79,157,255,.04); }
   .clickDot[hidden] { display:none; }
+  .markerStamp { position:absolute; left:10px; bottom:10px; z-index:6; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:rgba(12,14,18,.86); color:var(--txt); font-size:12px; font-variant-numeric:tabular-nums; }
+  .markerStamp[hidden] { display:none; }
   .teams { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width: 560px) { .teams { grid-template-columns:1fr; } }
   .team { border:1px solid var(--line); border-radius:10px; padding:14px; background:#13161c; border-top:4px solid var(--line); }
@@ -59,6 +61,11 @@
   .bestCard { background:#13161c; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
   .bestCard .k { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
   .bestCard .v { margin-top:3px; font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .topScores { display:grid; gap:6px; }
+  .topScore { display:grid; grid-template-columns:34px minmax(0,1fr) 72px; gap:8px; align-items:center; padding:8px 10px; background:#13161c; border:1px solid var(--line); border-radius:7px; font-size:13px; }
+  .topScore .rank, .topScore .time { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .topScore .who { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .topScore .team.green { color:#36e07c; } .topScore .team.purple { color:#b86bff; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
   th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
@@ -111,8 +118,6 @@
         <h2>Live camera</h2>
         <div class="feedWrap" id="feedWrap">
           <img id="webcamFeed" alt="live game camera feed" />
-          <div id="calOverlay" class="calOverlay" hidden></div>
-          <div id="moveZoneLayer" class="moveZoneLayer" hidden></div>
           <div id="clickDot" class="clickDot" hidden></div>
         </div>
         <div class="controlRow">
@@ -134,7 +139,7 @@
           <button id="btnMoveTarget" type="button">Move to click</button>
           <button id="btnPick" class="pick" type="button">Pick up</button>
           <button id="btnRelease" class="release" type="button">Release tag</button>
-          <span id="autoStatus" class="status">Click a calibrated point on the camera view.</span>
+          <span id="autoStatus" class="status">Click a target on the camera view.</span>
         </div>
         <div class="miniStats">
           <div class="miniStat"><div class="k">Relay</div><div class="v" id="relayStat">--</div></div>
@@ -168,22 +173,24 @@
 
     <section>
       <div class="panel">
-        <h2>Robot calibration</h2>
-        <div id="cornerMap" class="cornerMap"></div>
-        <div id="calRows" class="calRows"></div>
-        <div class="controlRow">
-          <button id="btnSyncPlayfield" type="button">Show calibration tags on playfield</button>
-          <button id="btnResetMoveZone" type="button">Reset movement zone</button>
-          <button id="btnDownloadCal" type="button">Download calibration ZIP</button>
-          <button id="btnUploadCal" type="button">Upload calibration ZIP</button>
-          <input id="uploadCalFile" type="file" accept=".zip,application/zip" hidden />
-          <button id="btnResetCal" class="reset" type="button">Reset selected arm calibration</button>
-          <span class="hint">Open Playfield Areas screen. The five ArUco calibration tags are real playfield areas filmed by the webcam.</span>
-        </div>
-      </div>
-      <div class="panel">
         <h2>Best time</h2>
         <div class="bestCard"><div class="k">Fastest run</div><div class="v" id="bestTime">--</div></div>
+      </div>
+      <div class="panel">
+        <h2>Top scores</h2>
+        <div class="controlRow" style="margin:0 0 10px">
+          <button id="btnResetHighScores" class="reset" type="button">Reset high scores</button>
+          <span class="hint">Clears this board only; the CSV log is kept.</span>
+        </div>
+        <div id="topScores" class="topScores"><div class="empty-row">No runs logged yet.</div></div>
+      </div>
+      <div class="panel">
+        <h2>Saved playfield</h2>
+        <div class="controlRow">
+          <button id="btnSavePlayfield" type="button">Save current playfield</button>
+          <button id="btnLoadPlayfield" type="button">Load saved playfield</button>
+          <span id="playfieldStatus" class="status">Uses the current Playfield Areas screen.</span>
+        </div>
       </div>
       <div class="panel">
         <h2>Results <span id="resultCount" class="hint"></span></h2>
@@ -236,6 +243,7 @@ let stopRequested = false;
 let sessionCameraMap = null;
 let movementZone = { sMin:0, sMax:1, tMin:0, tMax:1 };
 let latestCalibrationTags = null;
+let cachedCalibrationTagSet = null;
 let zoneDrag = null;
 let lastZoneDragEnd = 0;
 
@@ -291,7 +299,7 @@ function defaultCornerMap() {
   return out;
 }
 function cornerMap() {
-  const saved = playfieldCal().corner_map || {};
+  const saved = armCal().corner_map || playfieldCal().corner_map || {};
   const out = defaultCornerMap();
   for (const [key] of CAL_POINTS) {
     const marker = Number(saved[key]);
@@ -302,6 +310,58 @@ function cornerMap() {
 function markerForCorner(key) {
   if (key === "center") return CENTER_MARKER;
   return cornerMap()[key];
+}
+function cornerMapsMatch(a, b) {
+  return CAL_POINTS.every(([key]) => Number((a || {})[key]) === Number((b || {})[key]));
+}
+function completeCalibrationTagSet(tags) {
+  return !!(tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left && tags.center);
+}
+function markerCacheFromCalibration() {
+  const arm = armCal();
+  const pf = playfieldCal();
+  const cache = arm.marker_cache || (cornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
+  if (!cache || !cache.tags || cache.cameraView !== cameraView) return null;
+  return {
+    tags: cache.tags,
+    capturedAt: Number(cache.capturedAt) || Date.now(),
+    cameraView: cache.cameraView,
+  };
+}
+function applyStoredCameraView() {
+  const arm = armCal();
+  const pf = playfieldCal();
+  const cache = arm.marker_cache || (cornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
+  if (!cache || (cache.cameraView !== "normal" && cache.cameraView !== "rot180")) return;
+  if (cameraView === cache.cameraView) return;
+  cameraView = cache.cameraView;
+  localStorage.setItem(AUTO_CAMERA_VIEW_KEY, cameraView);
+  applyCameraView();
+  cachedCalibrationTagSet = null;
+  latestCalibrationTags = null;
+  sessionCameraMap = null;
+}
+function saveMarkerCache(cached) {
+  if (!cached || !cached.tags) return;
+  return api("/api/calibration/marker-cache", {
+    side:selectedSide,
+    marker_cache: {
+      tags: cached.tags,
+      capturedAt: cached.capturedAt,
+      cameraView,
+    },
+  }).then(data => { calibration = data.calibration || calibration; return data; });
+}
+function markerCaptureText(cached) {
+  if (!cached || !cached.capturedAt) return "";
+  return `Markers ${new Date(cached.capturedAt).toLocaleTimeString()}`;
+}
+function setMarkerStamp(cached) {
+  const stamp = el("markerStamp");
+  if (!stamp) return;
+  const text = markerCaptureText(cached);
+  stamp.hidden = !text;
+  if (text) stamp.textContent = text;
 }
 function clearSelectedTarget() {
   selectedTarget = null;
@@ -320,7 +380,9 @@ async function loadCalibration() {
   chooseInitialSide();
   chooseInitialLink();
   chooseInitialCameraView();
+  applyStoredCameraView();
   loadMovementZone();
+  cachedCalibrationTagSet = markerCacheFromCalibration();
   renderCalibration();
 }
 
@@ -387,12 +449,21 @@ function cleanMovementZone(value) {
 }
 
 function loadMovementZone() {
+  const saved = playfieldCal().active_area;
+  if (saved) {
+    movementZone = cleanMovementZone(saved);
+    localStorage.setItem(AUTO_MOVE_ZONE_KEY, JSON.stringify(movementZone));
+    return;
+  }
   try { movementZone = cleanMovementZone(JSON.parse(localStorage.getItem(AUTO_MOVE_ZONE_KEY) || "null")); }
   catch (_) { movementZone = cleanMovementZone(null); }
 }
 
 function saveMovementZone() {
   localStorage.setItem(AUTO_MOVE_ZONE_KEY, JSON.stringify(movementZone));
+  api("/api/calibration/active-area", { active_area:movementZone })
+    .then(data => { calibration = data.calibration || calibration; })
+    .catch(() => null);
 }
 
 function resetMovementZone() {
@@ -437,6 +508,8 @@ async function uploadCalibrationZip(file) {
   if (data.active_area) {
     movementZone = cleanMovementZone(data.active_area);
     saveMovementZone();
+  } else {
+    loadMovementZone();
   }
   clearSelectedTarget();
   renderCalibration();
@@ -448,12 +521,44 @@ async function syncPlayfieldTags() {
   try {
     const data = await api("/api/calibration/playfield", {});
     calibration = data.calibration || calibration;
+    cachedCalibrationTagSet = null;
+    latestCalibrationTags = null;
+    sessionCameraMap = null;
+    setMarkerStamp(null);
     clearSelectedTarget();
     renderCalibration();
+    refreshCalibrationOverlay();
     setAutoStatus("Calibration tags are on the Playfield Areas screen. Camera map will recapture on the next move.");
   } catch (e) {
     setAutoStatus(`Playfield tag sync failed: ${e.message}`);
   }
+}
+
+function setPlayfieldStatus(text) {
+  const node = el("playfieldStatus");
+  if (node) node.textContent = text;
+}
+
+async function saveCurrentPlayfield() {
+  setPlayfieldStatus("Saving current playfield...");
+  const data = await api("/api/playfield/save", {});
+  const when = data.saved_at ? fmtWhen(data.saved_at) : "now";
+  setPlayfieldStatus(`Saved ${data.count || 0} Playfield Areas at ${when}.`);
+}
+
+async function loadSavedPlayfield() {
+  setPlayfieldStatus("Loading saved playfield...");
+  const data = await api("/api/playfield/load", {});
+  calibration = data.calibration || calibration;
+  clearSelectedTarget();
+  cachedCalibrationTagSet = markerCacheFromCalibration();
+  latestCalibrationTags = null;
+  sessionCameraMap = null;
+  renderCalibration();
+  await refreshCalibrationOverlay();
+  const when = data.saved_at ? fmtWhen(data.saved_at) : "the saved snapshot";
+  setPlayfieldStatus(`Loaded ${data.count || 0} Playfield Areas from ${when}.`);
+  setAutoStatus("Saved playfield loaded into Playfield Areas.");
 }
 
 async function fetchRelayState() {
@@ -509,6 +614,8 @@ function duplicateCornerMarkers(map) {
 }
 
 function renderCornerMap() {
+  if (!el("cornerMap")) return;
+  if (document.activeElement && document.activeElement.matches("#cornerMap select[data-corner]")) return;
   const map = cornerMap();
   const duplicates = duplicateCornerMarkers(map);
   const choices = CAL_POINTS.map(([key, label]) => {
@@ -545,7 +652,7 @@ function readCornerMapControls() {
 async function saveCornerMap() {
   try {
     const next = readCornerMapControls();
-    const data = await api("/api/calibration/corner-map", { corner_map: next });
+    const data = await api("/api/calibration/corner-map", { side:selectedSide, corner_map: next });
     calibration = data.calibration || calibration;
     clearSelectedTarget();
     renderCalibration();
@@ -556,6 +663,7 @@ async function saveCornerMap() {
 }
 
 function renderCalibration() {
+  if (!el("cornerMap") || !el("calRows")) return;
   const cal = armCal();
   const pf = playfieldCal();
   const rows = [];
@@ -606,6 +714,16 @@ async function captureCalibration(target) {
   try {
     const data = await api("/api/calibration/capture", { side:selectedSide, target, pose });
     calibration = data.calibration || calibration;
+    if (target === "transport_height") {
+      try {
+        await storeFinalMarkerSnapshot();
+      } catch (err) {
+        clearSelectedTarget();
+        renderCalibration();
+        setAutoStatus(`Captured Transport Z, but marker locations were not stored: ${err.message}.`);
+        return;
+      }
+    }
     clearSelectedTarget();
     renderCalibration();
     setAutoStatus(`Captured ${target.replaceAll("_", " ")} for ${selectedSide}.`);
@@ -799,16 +917,34 @@ async function visibleCalibrationTags() {
   return out;
 }
 
-async function detectedCalibrationTags() {
-  const tags = await visibleCalibrationTags();
-  const out = {};
-  for (const key of ["top_left", "top_right", "bottom_right", "bottom_left", "center"]) {
-    const marker = markerForCorner(key);
-    const tag = tags[key];
-    if (!tag) throw new Error(`camera cannot see calibration tag ${marker} (${cornerLabel(key)})`);
-    out[key] = tag;
+async function activeCalibrationTags() {
+  const stored = markerCacheFromCalibration();
+  if (stored) {
+    cachedCalibrationTagSet = stored;
+    return cachedCalibrationTagSet;
   }
-  return out;
+  try {
+    const tags = await visibleCalibrationTags();
+    if (completeCalibrationTagSet(tags)) {
+      cachedCalibrationTagSet = { tags, capturedAt:Date.now(), cameraView };
+    }
+  } catch (_) {}
+  return cachedCalibrationTagSet;
+}
+async function storeFinalMarkerSnapshot() {
+  const tags = await visibleCalibrationTags();
+  if (!completeCalibrationTagSet(tags)) {
+    throw new Error("all five calibration tags must be visible when capturing Transport Z");
+  }
+  cachedCalibrationTagSet = { tags, capturedAt:Date.now(), cameraView };
+  await saveMarkerCache(cachedCalibrationTagSet);
+  setMarkerStamp(cachedCalibrationTagSet);
+}
+
+async function detectedCalibrationTags() {
+  const cached = await activeCalibrationTags();
+  if (!cached) throw new Error("camera has not captured a complete calibration marker set yet");
+  return cached.tags;
 }
 
 function overlayShortLabel(key) {
@@ -826,6 +962,7 @@ function midpoint(a, b) {
 function renderCalibrationOverlay(tags) {
   latestCalibrationTags = tags;
   const overlay = el("calOverlay");
+  if (!overlay) return;
   const entries = ["top_left", "top_right", "bottom_right", "bottom_left", "center"]
     .filter(key => tags[key])
     .map(key => ({ key, marker:markerForCorner(key), point:feedPointFromCamera(tags[key].nx, tags[key].ny) }));
@@ -862,6 +999,7 @@ function renderCalibrationOverlay(tags) {
 
 function renderMovementZone(tags) {
   const layer = el("moveZoneLayer");
+  if (!layer) return;
   const hasCorners = tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left;
   if (!hasCorners) {
     layer.hidden = true;
@@ -924,17 +1062,17 @@ function stopZoneDrag() {
 }
 
 async function refreshCalibrationOverlay() {
-  try {
-    renderCalibrationOverlay(await visibleCalibrationTags());
-  } catch (_) {
-    renderCalibrationOverlay({});
-  }
+  const cached = await activeCalibrationTags();
+  renderCalibrationOverlay(cached ? cached.tags : {});
+  setMarkerStamp(cached);
 }
 
 async function sessionCalibrationTags() {
-  if (sessionCameraMap) return sessionCameraMap;
-  setAutoStatus("Reading calibration tags once for simple offset/multiplier mapping...");
-  const tags = await detectedCalibrationTags();
+  setAutoStatus("Using the latest complete calibration marker capture for simple offset/multiplier mapping...");
+  const cached = await activeCalibrationTags();
+  if (!cached) throw new Error("camera has not captured a complete calibration marker set yet");
+  if (sessionCameraMap && sessionCameraMap.captured_at === cached.capturedAt) return sessionCameraMap;
+  const tags = cached.tags;
   renderCalibrationOverlay(tags);
   sessionCameraMap = {
     top_left: tags.top_left,
@@ -942,9 +1080,10 @@ async function sessionCalibrationTags() {
     bottom_right: tags.bottom_right,
     bottom_left: tags.bottom_left,
     center: tags.center,
-    captured_at: Date.now(),
+    captured_at: cached.capturedAt,
   };
-  setAutoStatus("Simple offset/multiplier camera calibration captured for this session.");
+  setMarkerStamp({ tags:sessionCameraMap, capturedAt:sessionCameraMap.captured_at });
+  setAutoStatus(`Using marker capture from ${new Date(sessionCameraMap.captured_at).toLocaleTimeString()}.`);
   return sessionCameraMap;
 }
 
@@ -1245,7 +1384,19 @@ async function refreshResults() {
   try {
     const data = await api("/api/results");
     const rows = data.results || [];
+    const topRows = data.top || [];
     el("resultCount").textContent = data.count ? `(${data.count} total)` : "";
+    if (!topRows.length) {
+      el("topScores").innerHTML = `<div class="empty-row">No runs logged yet.</div>`;
+    } else {
+      el("topScores").innerHTML = topRows.map((r, i) => `
+        <div class="topScore">
+          <div class="rank">#${i + 1}</div>
+          <div class="who">${escapeHtml(r.player || "—")} <span class="team ${r.team === 'green' || r.team === 'purple' ? r.team : ''}">${escapeHtml(r.team || "")}</span></div>
+          <div class="time">${Number(r.elapsed_seconds).toFixed(1)}s</div>
+        </div>
+      `).join("");
+    }
     if (!rows.length) { el("resultsBody").innerHTML = `<tr><td colspan="5" class="empty-row">No runs logged yet.</td></tr>`; return; }
     const best = data.best && data.best.seconds;
     el("resultsBody").innerHTML = rows.map((r, i) => {
@@ -1277,6 +1428,16 @@ function wire() {
     el(`finish-${t}`).onclick = async () => { try { applyState(await api("/api/finish", { team: t })); refreshResults(); } catch (e) { alert(e.message); } };
     el(`reset-${t}`).onclick = async () => { try { applyState(await api("/api/reset", { team: t })); } catch (e) { alert(e.message); } };
   }
+  el("btnResetHighScores").onclick = async () => {
+    if (!confirm("Reset the high-score board? The CSV results file will not be changed.")) return;
+    try {
+      const data = await api("/api/results/reset-highscores", {});
+      if (data.state) applyState(data.state);
+      refreshResults();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
   el("autoSide").onchange = () => {
     selectedSide = el("autoSide").value;
     localStorage.setItem(AUTO_SIDE_KEY, selectedSide);
@@ -1303,11 +1464,15 @@ function wire() {
     cameraView = el("cameraView").value === "rot180" ? "rot180" : "normal";
     localStorage.setItem(AUTO_CAMERA_VIEW_KEY, cameraView);
     applyCameraView();
+    cachedCalibrationTagSet = null;
+    latestCalibrationTags = null;
+    sessionCameraMap = null;
+    setMarkerStamp(null);
     clearSelectedTarget();
     refreshCalibrationOverlay();
     setAutoStatus(isCameraRotated()
-      ? "Video rotated 180 degrees. Calibration uses displayed robot-arm orientation."
-      : "Video normal. Calibration uses displayed robot-arm orientation.");
+      ? "Video rotated 180 degrees."
+      : "Video normal.");
   };
   el("feedWrap").onclick = ev => runAutomation(async () => {
     if (Date.now() - lastZoneDragEnd < 160) return;
@@ -1328,20 +1493,28 @@ function wire() {
   el("btnMoveTarget").onclick = () => runAutomation(moveSelectedTarget);
   el("btnPick").onclick = () => runAutomation(pickUp);
   el("btnRelease").onclick = () => runAutomation(releaseTag);
-  el("btnSyncPlayfield").onclick = syncPlayfieldTags;
-  el("btnResetMoveZone").onclick = resetMovementZone;
-  el("btnDownloadCal").onclick = async () => {
+  if (el("btnSavePlayfield")) el("btnSavePlayfield").onclick = async () => {
+    try { await saveCurrentPlayfield(); }
+    catch (e) { setPlayfieldStatus(`Save failed: ${e.message}`); }
+  };
+  if (el("btnLoadPlayfield")) el("btnLoadPlayfield").onclick = async () => {
+    try { await loadSavedPlayfield(); }
+    catch (e) { setPlayfieldStatus(`Load failed: ${e.message}`); }
+  };
+  if (el("btnSyncPlayfield")) el("btnSyncPlayfield").onclick = syncPlayfieldTags;
+  if (el("btnResetMoveZone")) el("btnResetMoveZone").onclick = resetMovementZone;
+  if (el("btnDownloadCal")) el("btnDownloadCal").onclick = async () => {
     try { await downloadCalibrationZip(); }
     catch (e) { setAutoStatus(`Download failed: ${e.message}`); }
   };
-  el("btnUploadCal").onclick = () => el("uploadCalFile").click();
-  el("uploadCalFile").onchange = async () => {
+  if (el("btnUploadCal")) el("btnUploadCal").onclick = () => el("uploadCalFile").click();
+  if (el("uploadCalFile")) el("uploadCalFile").onchange = async () => {
     const file = el("uploadCalFile").files && el("uploadCalFile").files[0];
     try { await uploadCalibrationZip(file); }
     catch (e) { setAutoStatus(`Upload failed: ${e.message}`); }
     finally { el("uploadCalFile").value = ""; }
   };
-  el("btnResetCal").onclick = async () => {
+  if (el("btnResetCal")) el("btnResetCal").onclick = async () => {
     if (!confirm(`Reset ${selectedSide} calibration?`)) return;
     const data = await api("/api/calibration/reset", { side:selectedSide });
     calibration = data.calibration || calibration;

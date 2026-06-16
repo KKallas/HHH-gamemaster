@@ -82,6 +82,8 @@ DEFAULT_SANDBOXES = {
             "tag-game": ["green", "purple"],
             "2p-tag-game": ["green", "purple"],
             "pickup-game": ["green", "purple"],
+            "auto-pickup-game": ["green", "purple"],
+            "playfield-areas": ["green", "purple"],
             "webcam": ["green", "purple"],
         },
     },

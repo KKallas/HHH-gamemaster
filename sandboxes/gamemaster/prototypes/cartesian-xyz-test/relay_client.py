@@ -145,7 +145,6 @@ class RelayClient:
         with self._lock:
             self._token = body.get("token")
             self._hb_ok = True
-        self._ensure_arm_connected()
         self._start_heartbeat()
 
     def _start_heartbeat(self):

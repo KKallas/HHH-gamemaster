@@ -24,6 +24,8 @@
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   input[type=text] { background:#0c0e12; border:1px solid var(--line); color:var(--txt);
     padding:8px 10px; border-radius:6px; font:inherit; width:150px; }
+  input[type=number] { background:#0c0e12; border:1px solid var(--line); color:var(--txt);
+    padding:8px 10px; border-radius:6px; font:inherit; }
   button { background:#232733; border:1px solid var(--line); color:var(--txt);
     padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; }
   button:hover:not(:disabled) { border-color:var(--accent); }
@@ -57,6 +59,12 @@
   input[type=range] { width:100%; accent-color:var(--accent); height:26px; }
   .limits { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
   .estop-bar { display:flex; gap:12px; align-items:center; }
+  .autoActions { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; align-items:end; }
+  .autoActions button { min-height:42px; font-weight:700; }
+  .fineTune { display:flex; flex-direction:column; gap:5px; min-width:150px; }
+  .fineTune label { color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+  .fineTune input { width:100%; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .autoZReadout { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; margin-top:8px; }
   .loclist { display:flex; flex-direction:column; gap:6px; margin:4px 0; }
   .locrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:#13161c;
     border:1px solid var(--line); border-radius:8px; padding:7px 10px; }
@@ -122,25 +130,71 @@
   }
 
   .feedWrap { position:relative; overflow:hidden; width:100%; height:100%;
-    background:#030405; }
-  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain; }
+    background:#030405;
+    --feedImageTransform:translate(0,0) scale(1);
+    --feedOverlayTransform:translate(0,0) scale(1); }
+  #webcamFeed { width:100%; height:100%; display:block; object-fit:contain;
+    transform-origin:0 0; transform:var(--feedImageTransform); }
+  .calOverlay { position:absolute; inset:0; pointer-events:none; z-index:3;
+    transform-origin:0 0; transform:var(--feedOverlayTransform); }
+  .calOverlay svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .calOverlay .calPin { position:absolute; min-width:30px; height:20px; padding:0 6px; display:flex; align-items:center; justify-content:center; border:2px solid #fff; border-radius:999px; background:rgba(3,4,5,.78); color:#fff; font-size:10px; font-weight:900; line-height:1; transform:translate(-50%, -50%); box-shadow:0 0 0 2px rgba(0,0,0,.35); }
+  .calOverlay .calPin.center { border-color:var(--accent); color:var(--accent); }
+  .calOverlay .calPin.corner { border-color:var(--ok); color:var(--ok); }
+  .calOverlay[hidden] { display:none; }
+  .moveZoneLayer { position:absolute; inset:0; pointer-events:none; z-index:4;
+    transform-origin:0 0; transform:var(--feedOverlayTransform); }
+  .reachMask { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .moveZoneBox { position:absolute; border:2px solid var(--warn); background:rgba(245,166,35,.08); box-shadow:0 0 0 9999px rgba(0,0,0,.18); }
+  .moveZoneLayer[hidden] { display:none; }
+  .clickDot { position:absolute; width:16px; height:16px; border:3px solid var(--accent); border-radius:50%; transform:translate(-50%, -50%); z-index:5; box-shadow:0 0 0 9999px rgba(79,157,255,.04); pointer-events:none; }
+  .clickDot[hidden] { display:none; }
+  .markerStamp { position:absolute; left:10px; bottom:10px; z-index:6; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:rgba(12,14,18,.86); color:var(--txt); font-size:12px; font-variant-numeric:tabular-nums; }
+  .markerStamp[hidden] { display:none; }
   .feedBanner { position:absolute; inset:0; display:grid; place-items:center; background:rgba(0,0,0,.55);
     color:var(--ok); font-size:clamp(28px,7vw,72px); font-weight:950; text-align:center; white-space:pre-line; }
   .feedBanner[hidden] { display:none; }
-  .flipBtn { position:absolute; top:10px; right:10px; z-index:2; display:inline-flex; align-items:center;
+  .feedTools { position:absolute; top:10px; right:10px; z-index:7; display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .feedTools button, .flipBtn { display:inline-flex; align-items:center;
     gap:7px; padding:7px 11px; border:1px solid var(--line); border-radius:7px; cursor:pointer;
-    background:rgba(12,14,18,.82); color:var(--txt); font-size:13px; font-weight:600; }
+    background:rgba(12,14,18,.82); color:var(--txt); font-size:13px; font-weight:600; min-height:34px; }
+  .feedTools button:hover { border-color:var(--accent); }
   label.check { display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; }
+  .nameGate { position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:18px; background:rgba(3,4,5,.78); }
+  .nameGate[hidden] { display:none; }
+  .nameDialog { width:min(420px,100%); background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; box-shadow:0 18px 60px rgba(0,0,0,.5); }
+  .nameDialog h1 { margin:0 0 6px; font-size:18px; }
+  .nameDialog p { margin:0 0 14px; color:var(--muted); font-size:13px; }
+  .nameDialog input { width:100%; margin-bottom:12px; }
+  .nameDialog .err { min-height:18px; color:var(--err); font-size:12px; }
+  .scoreRows { display:grid; gap:6px; }
+  .scoreRow { display:grid; grid-template-columns:28px minmax(0,1fr) 64px; gap:8px; align-items:center; padding:7px 9px; background:#13161c; border:1px solid var(--line); border-radius:7px; font-size:13px; }
+  .scoreRow .rank, .scoreRow .time { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .scoreRow .who { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .scoreRow .team.green { color:#36e07c; } .scoreRow .team.purple { color:#b86bff; }
+  .scoreEmpty { color:var(--muted); font-size:13px; }
 </style>
   <link rel="stylesheet" href="/theme.css" />
 </head>
 <body>
+<div id="nameGate" class="nameGate" hidden>
+  <form id="nameForm" class="nameDialog" autocomplete="off">
+    <h1>Player name</h1>
+    <p>Enter the name that should appear on the Auto Pick and Place scoreboard.</p>
+    <input id="nameInput" type="text" maxlength="32" required />
+    <div class="row">
+      <button id="btnNameSubmit" class="primary" type="submit">Play</button>
+      <span id="nameErr" class="err"></span>
+    </div>
+  </form>
+</div>
 
 <!-- ===================== app ===================== -->
 <div id="app">
 <div class="gamebar">
   <span class="teamName" id="teamName">—</span>
   <span class="gstatus" id="playerName">—</span>
+  <button id="btnChangeName" type="button">Name</button>
   <span style="flex:1"></span>
   <span class="clk" id="clock">--</span>
   <button id="btnNew" hidden>New attempt</button>
@@ -151,16 +205,26 @@
   <section class="videoPane">
     <div class="feedWrap">
       <img id="webcamFeed" alt="live game camera feed" />
+      <div id="calOverlay" class="calOverlay" hidden></div>
+      <div id="moveZoneLayer" class="moveZoneLayer" hidden></div>
+      <div id="clickDot" class="clickDot" hidden></div>
+      <div id="markerStamp" class="markerStamp" hidden></div>
       <div id="feedBanner" class="feedBanner" hidden></div>
-      <label class="flipBtn" title="Flip if your robot faces you from the far side">
-        <input type="checkbox" id="flipToggle" /> Flip 180°
-      </label>
+      <div class="feedTools">
+        <button id="btnLoadPlayfield" type="button">Load playfield</button>
+        <label class="flipBtn" title="Show calibration tag number labels on the video">
+          <input type="checkbox" id="tagOverlayToggle" /> Tags
+        </label>
+        <label class="flipBtn" title="Flip if your robot faces you from the far side">
+          <input type="checkbox" id="flipToggle" /> Flip 180°
+        </label>
+      </div>
     </div>
   </section>
   <div class="controlsPane">
 <header>
-  <h1>Auto Pick and Place — full arm controls</h1>
-  <span class="sub" id="armSub">Manual Override · joint-space</span>
+  <h1>Auto Pick and Place — XYZ controls</h1>
+  <span class="sub" id="armSub">Manual Override · TCP workspace</span>
   <span style="flex:1"></span>
   <span id="connPill" class="pill off"><span class="dot"></span><span id="connText">Disconnected</span></span>
   <span id="modePill" class="pill off"><span class="dot"></span><span id="modeText">—</span></span>
@@ -230,23 +294,15 @@
   </section>
 
   <section class="panel">
-    <h2>Joint angles — J1 / J2 / J3 / J4 (deg)
+    <h2>TCP pose — X / Y / Z (mm)
       <span id="zFloorWarn" style="display:none; margin-left:10px; color:var(--warn); font-weight:700; text-transform:none; letter-spacing:0"></span>
     </h2>
     <div id="axes"></div>
     <div class="row" style="margin-top:10px">
       <button id="btnSync" disabled>Sync sliders to robot</button>
-      <span class="hint" id="limHint"></span>
+      <span class="hint" id="wsHint"></span>
     </div>
-    <div class="hint">Targets are clamped to each joint's limit. Unreachable targets are rejected — shown in the log.</div>
-  </section>
-
-  <section class="panel">
-    <h2>Saved locations</h2>
-    <div class="hint" style="margin-bottom:10px">Ten fixed slots. Edit the label and J1–J4, or
-      <b>Set</b> to capture the current slider angles; <b>Recall</b> sends the arm there
-      (needs Connect → Enable). Saved across restarts.</div>
-    <div id="locList" class="loclist"></div>
+    <div class="hint">Targets are clamped to the reachable workspace. Click inside the active video field to send X/Y, then use Z for height.</div>
   </section>
 
   <section class="panel">
@@ -257,6 +313,25 @@
       <button id="btnPumpOff" disabled>Off</button>
       <span id="pumpPill" class="pill off"><span class="dot"></span><span id="pumpText">off</span></span>
     </div>
+  </section>
+
+  <section class="panel">
+    <h2>Auto Pick and Place</h2>
+    <div class="autoActions">
+      <button id="btnPickupTag" class="ok" disabled>Pickup Tag</button>
+      <button id="btnTransportHeight" disabled>Transport height</button>
+      <button id="btnDropOff" class="stop" disabled>Drop off</button>
+      <div class="fineTune">
+        <label for="pickupFineTune">Fine tune Z (mm)</label>
+        <input type="number" id="pickupFineTune" min="-30" max="30" step="1" value="0" disabled />
+      </div>
+    </div>
+    <div class="autoZReadout" id="autoZReadout">Calibration: pickup -- mm · transport -- mm</div>
+  </section>
+
+  <section class="panel" id="scorePanel">
+    <h2>Top scores</h2>
+    <div id="playerScores" class="scoreRows"><div class="scoreEmpty">No runs logged yet.</div></div>
   </section>
 
   <section class="panel">
@@ -278,8 +353,11 @@ const TEAM_LABEL = TEAM.charAt(0).toUpperCase() + TEAM.slice(1);
 const AUTO_PLAYER_NAME = `${TEAM_LABEL} Auto`;
 const GM = `${location.origin}/s/gamemaster/p/auto-pickup-game`;
 const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
-const JOINT = `${location.origin}/s/${TEAM}/p/joint-angles-test`;
+const WEBCAM_TAGS = `${location.origin}/s/gamemaster/p/webcam/api/tags`;
+const CART = `${location.origin}/s/${TEAM}/p/cartesian-xyz-test`;
 const FLIP_KEY = `auto-pickup-game-flip-${TEAM}`;
+const TAG_OVERLAY_KEY = `auto-pickup-game-tags-${TEAM}`;
+const PLAYER_NAME_KEY = `auto-pickup-game-player-name-${TEAM}`;
 const gid = id => document.getElementById(id);
 
 let gstate = null;
@@ -289,22 +367,524 @@ let gPrevPhase = null;     // last seen phase for this team (to detect resets)
 let armLinked = false;     // is this team's arm currently connected?
 let autoStartDone = false; // guard so connect only auto-starts the timer once
 let autoRegistering = false;
+let gameCalibration = {};
+let latestGameTags = null;
+let cachedGameTagSet = null;
+let gameActiveArea = { sMin:0, sMax:1, tMin:0, tMax:1 };
+let gameReachWorkspace = { x:[-450,450], y:[-450,450] };
+let gameRadiusMin = 150, gameRadiusMax = 440;
+const REACH_GRID_COLS = 56;
+const REACH_GRID_ROWS = 36;
+let feedZoomState = { scale:1, tx:0, ty:0 };
+let videoClickSeq = 0;
+let lastVideoTargetPoint = null;
+let gamePollBusy = false;
+let scoreRefreshBusy = false;
+
+function invalidateVideoClicks() {
+  videoClickSeq += 1;
+}
 
 async function gmFetch(path, opts = {}) {
-  const res = await fetch(GM + path, opts);
-  const text = await res.text();
-  let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
-  if (!res.ok) throw new Error(data.error || text || `HTTP ${res.status}`);
-  return data;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const res = await fetch(GM + path, { ...opts, signal:ctrl.signal });
+    const text = await res.text();
+    let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+    if (!res.ok) throw new Error(data.error || text || `HTTP ${res.status}`);
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function startWebcam() { gid('webcamFeed').src = `${WEBCAM}?t=${Date.now()}`; }
+async function loadPlayfield() {
+  startWebcam();
+  await loadGameCalibration();
+  await refreshGameField();
+  log("playfield loaded", "log-info");
+}
 function applyFlip() {
   const on = gid('flipToggle').checked;
-  gid('webcamFeed').style.transform = on ? 'rotate(180deg)' : '';
   localStorage.setItem(FLIP_KEY, on ? '1' : '0');
+  cachedGameTagSet = null;
+  latestGameTags = null;
+  setMarkerStamp(null);
+  loadGameCalibration().then(refreshGameField).catch(() => refreshGameField());
+}
+function tagOverlayVisible() {
+  const toggle = gid("tagOverlayToggle");
+  return !toggle || toggle.checked;
+}
+function applyTagOverlayToggle() {
+  localStorage.setItem(TAG_OVERLAY_KEY, tagOverlayVisible() ? "1" : "0");
+  refreshGameField();
 }
 
+function fmtNum(v) { return (v == null || !Number.isFinite(Number(v))) ? "--" : Number(v).toFixed(1); }
+function cleanActiveArea(value) {
+  const fallback = { sMin:0, sMax:1, tMin:0, tMax:1 };
+  if (!value || typeof value !== "object") return fallback;
+  const out = {
+    sMin:Number(value.sMin), sMax:Number(value.sMax),
+    tMin:Number(value.tMin), tMax:Number(value.tMax),
+  };
+  if (!Object.values(out).every(Number.isFinite)) return fallback;
+  if (out.sMax - out.sMin < 0.05 || out.tMax - out.tMin < 0.05) return fallback;
+  return out;
+}
+function gameArmCal() { return (gameCalibration.arms && gameCalibration.arms[TEAM]) || {}; }
+function gamePlayfieldCal() { return gameCalibration.playfield || {}; }
+function gameCornerMap() {
+  const saved = gameArmCal().corner_map || gamePlayfieldCal().corner_map || {};
+  return {
+    top_left:Number(saved.top_left) || 20,
+    top_right:Number(saved.top_right) || 21,
+    bottom_right:Number(saved.bottom_right) || 22,
+    bottom_left:Number(saved.bottom_left) || 23,
+  };
+}
+function gameMarkerForCorner(key) { return key === "center" ? 24 : gameCornerMap()[key]; }
+function gameCornerMapsMatch(a, b) {
+  return ["top_left", "top_right", "bottom_right", "bottom_left"].every(key => Number((a || {})[key]) === Number((b || {})[key]));
+}
+function completeGameTagSet(tags) {
+  return !!(tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left && tags.center);
+}
+function markerCaptureText(cached) {
+  if (!cached || !cached.capturedAt) return "";
+  return `Markers ${new Date(cached.capturedAt).toLocaleTimeString()}`;
+}
+function setMarkerStamp(cached) {
+  const stamp = gid("markerStamp");
+  const text = markerCaptureText(cached);
+  stamp.hidden = !text;
+  if (text) stamp.textContent = text;
+}
+function currentGameCameraView() {
+  return gid("flipToggle").checked ? "rot180" : "normal";
+}
+function markerCacheFromGameCalibration() {
+  const arm = gameArmCal();
+  const pf = gamePlayfieldCal();
+  const cache = arm.marker_cache || (gameCornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
+  if (!cache || !cache.tags || cache.cameraView !== currentGameCameraView()) return null;
+  return { tags:cache.tags, capturedAt:Number(cache.capturedAt) || Date.now(), cameraView:cache.cameraView };
+}
+function saveGameMarkerCache(cached) {
+  if (!cached || !cached.tags) return Promise.resolve(null);
+  return gmFetch("/api/calibration/marker-cache", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({
+      side:TEAM,
+      marker_cache:{
+        tags:cached.tags,
+        capturedAt:cached.capturedAt,
+        cameraView:cached.cameraView,
+      },
+    }),
+  }).then(data => {
+    gameCalibration = data.calibration || gameCalibration;
+    return data;
+  }).catch(() => null);
+}
+function applyStoredGameCameraView() {
+  const arm = gameArmCal();
+  const pf = gamePlayfieldCal();
+  const cache = arm.marker_cache || (gameCornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
+  if (!cache || (cache.cameraView !== "normal" && cache.cameraView !== "rot180")) return;
+  const rotated = cache.cameraView === "rot180";
+  if (gid("flipToggle").checked === rotated) return;
+  gid("flipToggle").checked = rotated;
+  localStorage.setItem(FLIP_KEY, rotated ? "1" : "0");
+  cachedGameTagSet = null;
+  latestGameTags = null;
+}
+function gameDisplayTag(tag) {
+  const nx = Number(tag.nx), ny = Number(tag.ny);
+  return gid('flipToggle').checked ? { ...tag, nx:1 - nx, ny:1 - ny } : { ...tag, nx, ny };
+}
+async function loadGameCalibration() {
+  const data = await gmFetch('/api/calibration');
+  gameCalibration = data.calibration || {};
+  gameActiveArea = cleanActiveArea(gamePlayfieldCal().active_area);
+  applyStoredGameCameraView();
+  cachedGameTagSet = markerCacheFromGameCalibration();
+  updateAutoZReadout();
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+async function refreshPlayerScores() {
+  if (scoreRefreshBusy) return;
+  scoreRefreshBusy = true;
+  try {
+    const data = await gmFetch("/api/results");
+    const rows = (data.top || data.results || []).slice(0, 10);
+    if (!rows.length) {
+      gid("playerScores").innerHTML = `<div class="scoreEmpty">No runs logged yet.</div>`;
+      return;
+    }
+    gid("playerScores").innerHTML = rows.map((row, i) => `
+      <div class="scoreRow">
+        <div class="rank">#${i + 1}</div>
+        <div class="who">${escapeHtml(row.player || "—")} <span class="team ${row.team === "green" || row.team === "purple" ? row.team : ""}">${escapeHtml(row.team || "")}</span></div>
+        <div class="time">${Number(row.elapsed_seconds).toFixed(1)}s</div>
+      </div>
+    `).join("");
+  } catch (_) {
+  } finally {
+    scoreRefreshBusy = false;
+  }
+}
+function imageFrameRect() {
+  const wrap = gid("webcamFeed").parentElement.getBoundingClientRect();
+  const img = gid("webcamFeed");
+  const naturalRatio = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : wrap.width / wrap.height;
+  const boxRatio = wrap.width / wrap.height;
+  let left = wrap.left, top = wrap.top, width = wrap.width, height = wrap.height;
+  if (boxRatio > naturalRatio) {
+    width = height * naturalRatio;
+    left += (wrap.width - width) / 2;
+  } else {
+    height = width / naturalRatio;
+    top += (wrap.height - height) / 2;
+  }
+  return { left, top, width, height, wrapLeft:wrap.left, wrapTop:wrap.top, wrapWidth:wrap.width, wrapHeight:wrap.height };
+}
+function feedPointFromCamera(u, v) {
+  const frame = imageFrameRect();
+  return {
+    x: ((frame.left + Number(u) * frame.width - frame.wrapLeft) / frame.wrapWidth) * 100,
+    y: ((frame.top + Number(v) * frame.height - frame.wrapTop) / frame.wrapHeight) * 100,
+  };
+}
+function visibleFeedPointFromCamera(u, v) {
+  const frame = imageFrameRect();
+  const baseX = frame.left + Number(u) * frame.width - frame.wrapLeft;
+  const baseY = frame.top + Number(v) * frame.height - frame.wrapTop;
+  return {
+    x: ((feedZoomState.tx + baseX * feedZoomState.scale) / frame.wrapWidth) * 100,
+    y: ((feedZoomState.ty + baseY * feedZoomState.scale) / frame.wrapHeight) * 100,
+  };
+}
+function showClickDot(u, v) {
+  const dot = gid("clickDot");
+  const p = visibleFeedPointFromCamera(u, v);
+  dot.hidden = false;
+  dot.style.left = `${p.x}%`;
+  dot.style.top = `${p.y}%`;
+}
+function setFeedZoom(tags) {
+  const wrapEl = gid("webcamFeed").parentElement;
+  const wrap = wrapEl.getBoundingClientRect();
+  const applyTransform = (scale, tx, ty) => {
+    const zoom = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${scale.toFixed(4)})`;
+    const image = gid("flipToggle").checked
+      ? `${zoom} translate(${wrap.width.toFixed(2)}px, ${wrap.height.toFixed(2)}px) rotate(180deg)`
+      : zoom;
+    wrapEl.style.setProperty("--feedImageTransform", image);
+    wrapEl.style.setProperty("--feedOverlayTransform", zoom);
+  };
+  const reset = () => {
+    feedZoomState = { scale:1, tx:0, ty:0 };
+    applyTransform(1, 0, 0);
+  };
+  if (!(tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left)) {
+    reset();
+    return;
+  }
+  const zoneTl = cameraPointFromST(tags, gameActiveArea.sMin, gameActiveArea.tMin);
+  const zoneBr = cameraPointFromST(tags, gameActiveArea.sMax, gameActiveArea.tMax);
+  const tl = feedPointFromCamera(zoneTl.u, zoneTl.v);
+  const br = feedPointFromCamera(zoneBr.u, zoneBr.v);
+  const left = Math.min(tl.x, br.x) / 100 * wrap.width;
+  const top = Math.min(tl.y, br.y) / 100 * wrap.height;
+  const right = Math.max(tl.x, br.x) / 100 * wrap.width;
+  const bottom = Math.max(tl.y, br.y) / 100 * wrap.height;
+  const zoneW = Math.max(1, right - left);
+  const zoneH = Math.max(1, bottom - top);
+  const scale = Math.max(1, Math.min(6, Math.min(wrap.width / zoneW, wrap.height / zoneH) * 0.96));
+  const tx = (wrap.width / 2) - ((left + right) / 2) * scale;
+  const ty = (wrap.height / 2) - ((top + bottom) / 2) * scale;
+  feedZoomState = { scale, tx, ty };
+  applyTransform(scale, tx, ty);
+}
+function avg2(a, b, key) { return (Number(a[key]) + Number(b[key])) / 2; }
+function linearAxis(value, inputMin, inputMax, outputMin, outputMax) {
+  const span = inputMax - inputMin;
+  if (Math.abs(span) < 0.0001) throw new Error("camera calibration span is too small");
+  return outputMin + ((outputMax - outputMin) / span) * (value - inputMin);
+}
+function linearAxisThroughCenter(value, inputMin, inputCenter, inputMax, outputMin, outputCenter, outputMax) {
+  if (!Number.isFinite(inputCenter) || Math.abs(inputCenter - inputMin) < 0.0001 || Math.abs(inputMax - inputCenter) < 0.0001) {
+    return linearAxis(value, inputMin, inputMax, outputMin, outputMax);
+  }
+  return value <= inputCenter
+    ? linearAxis(value, inputMin, inputCenter, outputMin, outputCenter)
+    : linearAxis(value, inputCenter, inputMax, outputCenter, outputMax);
+}
+function linearSolveCameraST(u, v, tl, tr, br, bl) {
+  const leftU = avg2(tl, bl, "nx");
+  const rightU = avg2(tr, br, "nx");
+  const topV = avg2(tl, tr, "ny");
+  const bottomV = avg2(bl, br, "ny");
+  const spanU = rightU - leftU;
+  const spanV = bottomV - topV;
+  if (Math.abs(spanU) < 0.0001 || Math.abs(spanV) < 0.0001) throw new Error("calibration tags are too close together");
+  return { rawS:(u - leftU) / spanU, rawT:(v - topV) / spanV, leftU, topV, spanU, spanV };
+}
+function cameraPointFromST(cam, s, t) {
+  const solved = linearSolveCameraST(0, 0, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
+  return { u:solved.leftU + solved.spanU * s, v:solved.topV + solved.spanV * t };
+}
+function robotPointFromST(cam, s, t) {
+  const cal = gameArmCal();
+  const pts = cal.points || {};
+  const tl = pts.top_left && pts.top_left.pose;
+  const tr = pts.top_right && pts.top_right.pose;
+  const br = pts.bottom_right && pts.bottom_right.pose;
+  const bl = pts.bottom_left && pts.bottom_left.pose;
+  const center = cal.center && cal.center.set ? cal.center : null;
+  if (![tl, tr, br, bl].every(p => p && p.set) || !center || !cam.center) return null;
+  const point = cameraPointFromST(cam, s, t);
+  const solved = linearSolveCameraST(point.u, point.v, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
+  const robotTopX = avg2(tl, tr, "x");
+  const robotBottomX = avg2(bl, br, "x");
+  const robotLeftY = avg2(tl, bl, "y");
+  const robotRightY = avg2(tr, br, "y");
+  return {
+    x: linearAxisThroughCenter(point.v, solved.topV, cam.center.ny, solved.topV + solved.spanV, robotTopX, center.x, robotBottomX),
+    y: linearAxisThroughCenter(point.u, solved.leftU, cam.center.nx, solved.leftU + solved.spanU, robotLeftY, center.y, robotRightY),
+  };
+}
+function robotPointReachable(point) {
+  if (!point) return true;
+  const x = Number(point.x), y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return true;
+  if (gameReachWorkspace.x && (x < gameReachWorkspace.x[0] || x > gameReachWorkspace.x[1])) return false;
+  if (gameReachWorkspace.y && (y < gameReachWorkspace.y[0] || y > gameReachWorkspace.y[1])) return false;
+  const radius = Math.hypot(x, y);
+  return radius >= gameRadiusMin && radius <= gameRadiusMax;
+}
+function renderReachMask(tags) {
+  if (!(tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left && tags.center)) return "";
+  try {
+    if (!robotPointFromST(tags, gameActiveArea.sMin, gameActiveArea.tMin)) return "";
+  } catch (_) {
+    return "";
+  }
+  const cells = [];
+  for (let row = 0; row < REACH_GRID_ROWS; row += 1) {
+    for (let col = 0; col < REACH_GRID_COLS; col += 1) {
+      const u0 = col / REACH_GRID_COLS;
+      const u1 = (col + 1) / REACH_GRID_COLS;
+      const v0 = row / REACH_GRID_ROWS;
+      const v1 = (row + 1) / REACH_GRID_ROWS;
+      const u = (u0 + u1) / 2;
+      const v = (v0 + v1) / 2;
+      let solved = null, pose = null;
+      try {
+        solved = linearSolveCameraST(u, v, tags.top_left, tags.top_right, tags.bottom_right, tags.bottom_left);
+        pose = robotPointFromST(tags, solved.rawS, solved.rawT);
+      } catch (_) {
+        continue;
+      }
+      if (robotPointReachable(pose)) continue;
+      const a = feedPointFromCamera(u0, v0);
+      const b = feedPointFromCamera(u1, v1);
+      const left = Math.min(a.x, b.x), top = Math.min(a.y, b.y);
+      const width = Math.abs(b.x - a.x), height = Math.abs(b.y - a.y);
+      cells.push(`<rect x="${left.toFixed(3)}" y="${top.toFixed(3)}" width="${width.toFixed(3)}" height="${height.toFixed(3)}" />`);
+    }
+  }
+  if (!cells.length) return "";
+  return `<svg class="reachMask" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <pattern id="playerUnreachableHatch" patternUnits="userSpaceOnUse" width="2.8" height="2.8" patternTransform="rotate(45)">
+        <rect width="2.8" height="2.8" fill="#b00020" opacity="0.16"></rect>
+        <line x1="0" y1="0" x2="0" y2="2.8" stroke="#ff3b4d" stroke-width="1.05" opacity="0.8"></line>
+      </pattern>
+    </defs>
+    <g fill="url(#playerUnreachableHatch)" stroke="#ff3b4d" stroke-width="0.04" opacity="0.92">${cells.join("")}</g>
+  </svg>`;
+}
+async function visibleGameTags() {
+  const res = await fetch(WEBCAM_TAGS);
+  if (!res.ok) throw new Error(`camera tag read failed: HTTP ${res.status}`);
+  const data = await res.json();
+  const seen = new Map();
+  for (const tag of [...(data.detections || []), ...(data.tags || [])]) {
+    const id = Number(tag.id);
+    if (!Number.isFinite(id) || !Number.isFinite(Number(tag.nx)) || !Number.isFinite(Number(tag.ny))) continue;
+    const rec = { id, nx:Number(tag.nx), ny:Number(tag.ny), missing:Number(tag.missing || 0) };
+    const prev = seen.get(id);
+    if (!prev || rec.missing < prev.missing) seen.set(id, rec);
+  }
+  const out = {};
+  for (const key of ["top_left", "top_right", "bottom_right", "bottom_left", "center"]) {
+    const tag = seen.get(gameMarkerForCorner(key));
+    if (tag && tag.missing <= 1.0) out[key] = gameDisplayTag(tag);
+  }
+  return out;
+}
+async function activeGameTags() {
+  const stored = markerCacheFromGameCalibration();
+  if (stored) {
+    cachedGameTagSet = stored;
+    return cachedGameTagSet;
+  }
+  try {
+    const tags = await visibleGameTags();
+    if (completeGameTagSet(tags)) {
+      cachedGameTagSet = { tags, capturedAt:Date.now(), cameraView:currentGameCameraView() };
+      saveGameMarkerCache(cachedGameTagSet);
+    }
+  } catch (_) {}
+  return cachedGameTagSet;
+}
+function renderGameField(tags) {
+  latestGameTags = tags;
+  setFeedZoom(tags);
+  if (lastVideoTargetPoint) showClickDot(lastVideoTargetPoint.u, lastVideoTargetPoint.v);
+  const overlay = gid("calOverlay");
+  const layer = gid("moveZoneLayer");
+  const keys = ["top_left", "top_right", "bottom_right", "bottom_left", "center"];
+  const entries = keys.filter(k => tags[k]).map(k => ({ key:k, marker:gameMarkerForCorner(k), point:feedPointFromCamera(tags[k].nx, tags[k].ny) }));
+  const showTags = tagOverlayVisible();
+  overlay.hidden = !showTags || !entries.length;
+  overlay.innerHTML = showTags ? entries.map(({ key, marker, point }) =>
+    `<div class="calPin ${key === "center" ? "center" : "corner"}" style="left:${point.x.toFixed(2)}%;top:${point.y.toFixed(2)}%">${key === "center" ? "C" : marker}</div>`
+  ).join("") : "";
+  if (!(tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left)) {
+    layer.hidden = true;
+    layer.innerHTML = "";
+    return;
+  }
+  const zoneTl = cameraPointFromST(tags, gameActiveArea.sMin, gameActiveArea.tMin);
+  const zoneBr = cameraPointFromST(tags, gameActiveArea.sMax, gameActiveArea.tMax);
+  const tl = feedPointFromCamera(zoneTl.u, zoneTl.v);
+  const br = feedPointFromCamera(zoneBr.u, zoneBr.v);
+  const left = Math.min(tl.x, br.x), top = Math.min(tl.y, br.y);
+  const right = Math.max(tl.x, br.x), bottom = Math.max(tl.y, br.y);
+  layer.hidden = false;
+  layer.innerHTML = `${renderReachMask(tags)}<div class="moveZoneBox" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${(right-left).toFixed(2)}%;height:${(bottom-top).toFixed(2)}%"></div>`;
+}
+async function refreshGameField() {
+  try {
+    if (!gameCalibration.playfield) await loadGameCalibration();
+    const cached = await activeGameTags();
+    renderGameField(cached ? cached.tags : {});
+    setMarkerStamp(cached);
+  } catch (_) {}
+}
+function normalizedVideoClick(ev) {
+  const frame = imageFrameRect();
+  const wrapX = (ev.clientX - frame.wrapLeft - feedZoomState.tx) / feedZoomState.scale;
+  const wrapY = (ev.clientY - frame.wrapTop - feedZoomState.ty) / feedZoomState.scale;
+  const rawU = (frame.wrapLeft + wrapX - frame.left) / frame.width;
+  const rawV = (frame.wrapTop + wrapY - frame.top) / frame.height;
+  if (rawU < 0 || rawU > 1 || rawV < 0 || rawV > 1) throw new Error("click inside the camera image");
+  return {
+    u: Math.max(0, Math.min(1, rawU)),
+    v: Math.max(0, Math.min(1, rawV)),
+  };
+}
+function baseSafePose(pose) {
+  const out = { ...pose };
+  const radius = Math.hypot(out.x, out.y);
+  if (radius && radius < 230) { const scale = 230 / radius; out.x *= scale; out.y *= scale; }
+  if (radius > 400) { const scale = 400 / radius; out.x *= scale; out.y *= scale; }
+  return out;
+}
+function clickToPose(u, v) {
+  const cal = gameArmCal();
+  const pts = cal.points || {};
+  const tl = pts.top_left && pts.top_left.pose;
+  const tr = pts.top_right && pts.top_right.pose;
+  const br = pts.bottom_right && pts.bottom_right.pose;
+  const bl = pts.bottom_left && pts.bottom_left.pose;
+  const center = cal.center && cal.center.set ? cal.center : null;
+  if (![tl, tr, br, bl].every(p => p && p.set) || !center) throw new Error("calibrate this arm first");
+  const cached = cachedGameTagSet || markerCacheFromGameCalibration();
+  const cam = latestGameTags || (cached && cached.tags);
+  if (!completeGameTagSet(cam)) throw new Error("stored calibration tag locations are missing; open Auto PP calibration and capture Transport Z while all five tags are visible");
+  const solved = linearSolveCameraST(u, v, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
+  if (solved.rawS < gameActiveArea.sMin || solved.rawS > gameActiveArea.sMax || solved.rawT < gameActiveArea.tMin || solved.rawT > gameActiveArea.tMax) {
+    throw new Error("target is outside the active playing field");
+  }
+  const robotTopX = avg2(tl, tr, "x");
+  const robotBottomX = avg2(bl, br, "x");
+  const robotLeftY = avg2(tl, bl, "y");
+  const robotRightY = avg2(tr, br, "y");
+  const camLeftU = solved.leftU, camRightU = solved.leftU + solved.spanU;
+  const camTopV = solved.topV, camBottomV = solved.topV + solved.spanV;
+  const z = Number(sliderEls.z && sliderEls.z.value) || (cal.transport_height && cal.transport_height.z) || center.z;
+  return baseSafePose({
+    x: linearAxisThroughCenter(v, camTopV, cam.center.ny, camBottomV, robotTopX, center.x, robotBottomX),
+    y: linearAxisThroughCenter(u, camLeftU, cam.center.nx, camRightU, robotLeftY, center.y, robotRightY),
+    z,
+  });
+}
+function syncTargetSliders(pose, axes = ["x", "y"]) {
+  for (const id of axes) {
+    const def = AXIS_DEFS.find(axis => axis.id === id);
+    const slider = sliderEls[id];
+    if (!def || !slider || pose[id] == null) continue;
+    const [lo, hi] = ws[id];
+    const v = Math.max(lo, Math.min(hi, Number(pose[id])));
+    slider.value = v;
+    showAxis(def, v);
+  }
+}
+async function handleVideoClick(ev) {
+  if (ev.defaultPrevented) return;
+  if (ev.button !== undefined && ev.button !== 0) return;
+  if (ev.target && ev.target.closest && ev.target.closest(".feedTools, button, label, input, select, a")) return;
+  if (ev.cancelable) ev.preventDefault();
+  const seq = ++videoClickSeq;
+  let pt;
+  try {
+    pt = normalizedVideoClick(ev);
+    await loadGameCalibration();
+    if (seq !== videoClickSeq) return;
+    await refreshGameField();
+    if (seq !== videoClickSeq) return;
+    const pose = clickToPose(pt.u, pt.v);
+    lastVideoTargetPoint = pt;
+    showClickDot(pt.u, pt.v);
+    syncTargetSliders(pose, ["x", "y"]);
+    log(`video target set -> X ${fmtNum(pose.x)} Y ${fmtNum(pose.y)}`, "log-info");
+    if (!connected) return;
+    if (seq !== videoClickSeq) return;
+    const res = await api("/api/move", pose);
+    if (!res.ok) throw new Error(res.error || "move failed");
+    log(`video target sent -> X ${fmtNum(pose.x)} Y ${fmtNum(pose.y)} Z ${fmtNum(pose.z)}`, "log-ok");
+  } catch (e) {
+    log(`video target ✗ ${e.message}`, "log-err");
+  }
+}
+
+function storedPlayerName() {
+  return (localStorage.getItem(PLAYER_NAME_KEY) || "").trim().slice(0, 32);
+}
+function setPlayerName(name) {
+  playerName = String(name || "").trim().slice(0, 32);
+  if (playerName) localStorage.setItem(PLAYER_NAME_KEY, playerName);
+  gid("playerName").textContent = playerName || "—";
+}
+function showNameDialog(message = "") {
+  gid("nameErr").textContent = message;
+  gid("nameInput").value = playerName || storedPlayerName();
+  gid("nameGate").hidden = false;
+  setTimeout(() => gid("nameInput").focus(), 0);
+}
+function hideNameDialog() {
+  gid("nameGate").hidden = true;
+}
 function showLogin() { showApp(); }
 function showApp() {
   const login = gid('login');
@@ -314,15 +894,19 @@ function showApp() {
 function setBanner(text, show) { gid('feedBanner').hidden = !show; if (show) gid('feedBanner').textContent = text; }
 
 function shouldAutoRegister(s) {
+  if (!playerName) return false;
   const ts = myTeam(s);
   const phase = ts.phase || 'idle';
-  return phase === 'idle' || !ts.player || (phase === 'ready' && ts.player !== AUTO_PLAYER_NAME);
+  return phase === 'idle' || !ts.player || (phase === 'ready' && ts.player !== playerName);
 }
 
 async function registerAutoPlayer() {
   if (autoRegistering) return;
+  if (!playerName) {
+    showNameDialog();
+    return;
+  }
   autoRegistering = true;
-  playerName = AUTO_PLAYER_NAME;
   showApp();
   gid('playerName').textContent = playerName;
   gid('runStatus').textContent = 'Registering player...';
@@ -387,7 +971,7 @@ async function pressNew() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ team: TEAM }),
   }); } catch (_) {}
-  // the resulting idle state (via SSE) runs onGameReset -> disconnect + auto-register
+  // the resulting idle state runs onGameReset -> disconnect + re-register
 }
 
 // Gamemaster reset / restart: drop the arm and immediately re-register.
@@ -395,7 +979,6 @@ async function onGameReset() {
   autoStartDone = false;
   armLinked = false;
   try { await api('/api/disconnect', {}); } catch (_) {}   // release the relay arm
-  playerName = AUTO_PLAYER_NAME;
   showApp();
   registerAutoPlayer();
 }
@@ -421,6 +1004,7 @@ function gameApplyState(s) {
     gid('btnNew').hidden = false;
     gid('runStatus').textContent = `Finished in ${Number(ts.elapsed_seconds).toFixed(1)}s — gamemaster will restart.`;
     setBanner(`FINISHED\n${Number(ts.elapsed_seconds).toFixed(1)}s`, true);
+    refreshPlayerScores();
   } else { // idle | ready
     stopClock();
     autoStartDone = false;
@@ -436,43 +1020,70 @@ function gameApplyState(s) {
 function gameInit() {
   gid('teamName').textContent = TEAM.toUpperCase();
   gid('teamName').className = 'teamName ' + TEAM;
-  gid('playerName').textContent = AUTO_PLAYER_NAME;
+  setPlayerName(storedPlayerName());
+  if (!playerName) showNameDialog();
+  gid('nameForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const next = gid('nameInput').value.trim().slice(0, 32);
+    if (!next) {
+      gid('nameErr').textContent = 'Name required.';
+      return;
+    }
+    setPlayerName(next);
+    hideNameDialog();
+    registerAutoPlayer();
+  });
+  gid('btnChangeName').addEventListener('click', () => showNameDialog());
   gid('btnNew').addEventListener('click', pressNew);
+  gid('btnLoadPlayfield').addEventListener('click', () => loadPlayfield().catch(e => log(`playfield load ✗ ${e.message}`, "log-err")));
+  gid('tagOverlayToggle').checked = localStorage.getItem(TAG_OVERLAY_KEY) !== '0';
+  gid('tagOverlayToggle').addEventListener('change', applyTagOverlayToggle);
   gid('flipToggle').checked = localStorage.getItem(FLIP_KEY) === '1';
   gid('flipToggle').addEventListener('change', applyFlip);
   applyFlip();
-  startWebcam();
+  loadPlayfield().catch(() => startWebcam());
   gid('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
+  gid('webcamFeed').parentElement.addEventListener('click', handleVideoClick);
+  loadGameCalibration().then(refreshGameField).catch(() => null);
+  refreshPlayerScores();
+  setInterval(refreshGameField, 1500);
+  setInterval(refreshPlayerScores, 5000);
 
   showApp();
+  const pollGameState = () => {
+    if (gamePollBusy) return;
+    gamePollBusy = true;
+    gmFetch('/api/state').then(s => {
+      gameApplyState(s);
+      if (shouldAutoRegister(s)) registerAutoPlayer();
+    }).catch(() => { if (playerName) registerAutoPlayer(); }).finally(() => { gamePollBusy = false; });
+  };
   gmFetch('/api/state').then(s => {
     gameApplyState(s);
     if (shouldAutoRegister(s)) registerAutoPlayer();
-  }).catch(registerAutoPlayer);
-  const es = new EventSource(`${GM}/api/events`);
-  es.onmessage = e => { try { gameApplyState(JSON.parse(e.data)); } catch (_) {} };
+  }).catch(() => { if (playerName) registerAutoPlayer(); });
+  setInterval(pollGameState, 700);
 }
 gameInit();
 
 
 /* =====================================================================
-   Full joint-angle controller (from joint-angles-test), pointed at this
-   team's joint-angles-test backend via JOINT.
+   XYZ controller (from cartesian-xyz-test), pointed at this team's backend.
    ===================================================================== */
-const BASE = JOINT + '/';
+const BASE = CART + '/';
 const AXIS_DEFS = [
-  { id:"j1", name:"J1 — base rotation", step:0.5 },
-  { id:"j2", name:"J2 — arm joint 1",   step:0.5 },
-  { id:"j3", name:"J3 — arm joint 2",   step:0.5 },
-  { id:"j4", name:"J4 — end rotation",  step:0.5 },
+  { id:"x", name:"X — forward / back", unit:"mm", step:1 },
+  { id:"y", name:"Y — left / right", unit:"mm", step:1 },
+  { id:"z", name:"Z — up / down", unit:"mm", step:1 },
 ];
-const UNIT = "°";
-let limits = { j1:[-160,160], j2:[-25,85], j3:[-25,105], j4:[-160,160] };
+let ws = { x:[-450,450], y:[-450,450], z:[-150,230], r:[-160,160] };
+let radiusMin = 150, radiusMax = 440;
 let connected = false;
 let sliderEls = {};
 const numEls = {};
 let lastServoError = null, pumpMode = "off";
 let draggingId = null;
+let armPollBusy = false;
 window.addEventListener("pointerup", () => draggingId = null);
 window.addEventListener("keyup", () => draggingId = null);
 
@@ -485,10 +1096,18 @@ function log(msg, cls="log-info") {
 }
 
 async function api(path, body, method) {
-  const opts = { method: method || (body ? "POST" : "GET") };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  const opts = { method: method || (body ? "POST" : "GET"), signal:ctrl.signal };
   if (body) { opts.headers = {"Content-Type":"application/json"}; opts.body = JSON.stringify(body); }
   try { return await (await fetch(BASE + path.replace(/^\//, ""), opts)).json(); }
-  catch (e) { log(`Network error on ${path}: ${e}`, "log-err"); return { ok:false, error:String(e) }; }
+  catch (e) {
+    const msg = e.name === "AbortError" ? "request timed out" : String(e);
+    log(`Network error on ${path}: ${msg}`, "log-err");
+    return { ok:false, error:msg };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 function report(name, res) {
   if (res.ok) log(`${name} ✓`, "log-ok");
@@ -496,17 +1115,142 @@ function report(name, res) {
   return res;
 }
 
-const fmtAxis = v => (typeof v === "number" ? v : parseFloat(v)).toFixed(1);
+function fineTuneZ() {
+  const el = document.getElementById("pickupFineTune");
+  const raw = Number(el && el.value);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(-30, Math.min(30, raw));
+}
+
+function calibratedZ(target, withFineTune = false) {
+  const rec = gameArmCal()[target];
+  const z = rec && rec.set ? Number(rec.z) : NaN;
+  if (!Number.isFinite(z)) {
+    throw new Error(`${target === "pickup_height" ? "Pickup" : "Transport"} Z is not calibrated`);
+  }
+  return z + (withFineTune ? fineTuneZ() : 0);
+}
+
+function updateAutoZReadout() {
+  const out = document.getElementById("autoZReadout");
+  if (!out) return;
+  const arm = gameArmCal();
+  const pickup = arm.pickup_height && arm.pickup_height.set ? Number(arm.pickup_height.z) : NaN;
+  const transport = arm.transport_height && arm.transport_height.set ? Number(arm.transport_height.z) : NaN;
+  const fine = fineTuneZ();
+  const pickupText = Number.isFinite(pickup)
+    ? `${fmtNum(pickup)} mm${fine ? ` (${fmtNum(pickup + fine)} tuned)` : ""}`
+    : "-- mm";
+  const transportText = Number.isFinite(transport) ? `${fmtNum(transport)} mm` : "-- mm";
+  out.textContent = `Calibration: pickup ${pickupText} · transport ${transportText}`;
+}
+
+function currentSliderPoseWithZ(z) {
+  return {
+    x: Number(sliderEls.x && sliderEls.x.value),
+    y: Number(sliderEls.y && sliderEls.y.value),
+    z: Number(z),
+  };
+}
+
+function assertReadyForAutoAction() {
+  if (!connected) throw new Error("connect the arm first");
+  if (!sliderEls.x || !sliderEls.y || !sliderEls.z) throw new Error("controls are not ready yet");
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForZ(targetZ, timeoutMs = 5000, tol = 3) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const s = await api("/api/status", null, "GET");
+    if (Array.isArray(s.pose) && Math.abs(Number(s.pose[2]) - targetZ) <= tol) return true;
+    await delay(120);
+  }
+  return false;
+}
+
+async function moveCurrentXYToZ(z, label, wait = false) {
+  assertReadyForAutoAction();
+  pauseUserMoves();
+  const [lo, hi] = ws.z;
+  const targetZ = Math.max(lo, Math.min(hi, Number(z)));
+  const pose = currentSliderPoseWithZ(targetZ);
+  if (!Number.isFinite(pose.x) || !Number.isFinite(pose.y) || !Number.isFinite(pose.z)) {
+    throw new Error("target sliders are not synced");
+  }
+  syncTargetSliders(pose, ["z"]);
+  const res = await api("/api/move", pose);
+  if (!res.ok) throw new Error(res.error || `${label} move failed`);
+  showZFloor(res.z_floor);
+  log(`${label} -> Z ${fmtNum(targetZ)} mm`, "log-ok");
+  if (wait) {
+    const arrived = await waitForZ(targetZ);
+    if (!arrived) throw new Error(`${label} did not reach Z ${fmtNum(targetZ)} mm`);
+  }
+  return targetZ;
+}
+
+async function setPumpMode(mode, label) {
+  const res = await api("/api/pump", { mode });
+  if (!res.ok) throw new Error(res.error || `${label} failed`);
+  log(`${label} ✓`, "log-ok");
+  setTimeout(poll, 80);
+}
+
+async function pickupTag() {
+  try {
+    await loadGameCalibration();
+    const z = calibratedZ("pickup_height", true);
+    await moveCurrentXYToZ(z, "pickup tag", true);
+    await setPumpMode("suck", "vacuum on");
+  } catch (e) {
+    log(`pickup tag ✗ ${e.message}`, "log-err");
+  } finally {
+    updateAutoZReadout();
+  }
+}
+
+async function transportHeight() {
+  try {
+    await loadGameCalibration();
+    await moveCurrentXYToZ(calibratedZ("transport_height"), "transport height", false);
+  } catch (e) {
+    log(`transport height ✗ ${e.message}`, "log-err");
+  } finally {
+    updateAutoZReadout();
+  }
+}
+
+async function dropOff() {
+  try {
+    await loadGameCalibration();
+    const z = calibratedZ("pickup_height", true);
+    await moveCurrentXYToZ(z, "drop off", true);
+    await setPumpMode("off", "vacuum off");
+    await setPumpMode("blow", "brief blow");
+    await delay(450);
+    await setPumpMode("off", "pump off");
+  } catch (e) {
+    log(`drop off ✗ ${e.message}`, "log-err");
+  } finally {
+    updateAutoZReadout();
+  }
+}
+
+const fmtAxis = (def, v) => (typeof v === "number" ? v : parseFloat(v)).toFixed(0);
 function showAxis(def, v) {
   const num = numEls[def.id];
-  if (num && num !== document.activeElement) num.value = fmtAxis(v);
+  if (num && num !== document.activeElement) num.value = fmtAxis(def, v);
 }
 
 function buildAxes() {
   const wrap = document.getElementById("axes");
   wrap.innerHTML = "";
   AXIS_DEFS.forEach(def => {
-    const [lo, hi] = limits[def.id];
+    const [lo, hi] = ws[def.id];
     const div = document.createElement("div");
     div.className = "axis";
     div.innerHTML = `
@@ -515,11 +1259,11 @@ function buildAxes() {
         <span class="readout">
           <input type="number" class="valnum" id="${def.id}Num" step="${def.step}"
             min="${lo}" max="${hi}" value="0" disabled />
-          <span class="unit">${UNIT}</span>
+          <span class="unit">${def.unit}</span>
           <span class="actual" id="${def.id}Act"></span></span>
       </div>
       <input type="range" id="${def.id}" min="${lo}" max="${hi}" step="${def.step}" value="0" disabled />
-      <div class="limits"><span>${lo} ${UNIT}</span><span>${hi} ${UNIT}</span></div>`;
+      <div class="limits"><span>${lo} ${def.unit}</span><span>${hi} ${def.unit}</span></div>`;
     wrap.appendChild(div);
   });
   AXIS_DEFS.forEach(def => {
@@ -533,26 +1277,34 @@ function buildAxes() {
     num.addEventListener("focus", () => draggingId = def.id);
     num.addEventListener("blur", () => draggingId = null);
     num.addEventListener("change", () => {
-      const [lo, hi] = limits[def.id];
+      const [lo, hi] = ws[def.id];
       let v = parseFloat(num.value);
       if (Number.isNaN(v)) return;
       v = Math.max(lo, Math.min(hi, v));
-      num.value = fmtAxis(v);
+      num.value = fmtAxis(def, v);
       el.value = v;
       queueMove();
     });
   });
-  document.getElementById("limHint").textContent =
-    `J1 ${limits.j1[0]}–${limits.j1[1]} · J2 ${limits.j2[0]}–${limits.j2[1]} · `
-    + `J3 ${limits.j3[0]}–${limits.j3[1]} · J4 ${limits.j4[0]}–${limits.j4[1]} (deg).`;
+  document.getElementById("wsHint").textContent =
+    `Reach ring ${radiusMin}-${radiusMax} mm; Z ${ws.z[0]}-${ws.z[1]} mm.`;
 }
 
 let lastSent = 0, pending = null, timer = null;
 const MOVE_INTERVAL = 60;
+function cancelQueuedMove() {
+  pending = null;
+  if (timer) { clearTimeout(timer); timer = null; }
+}
+function pauseUserMoves() {
+  draggingId = null;
+  invalidateVideoClicks();
+  cancelQueuedMove();
+}
 function queueMove() {
   pending = {
-    j1: parseFloat(sliderEls.j1.value), j2: parseFloat(sliderEls.j2.value),
-    j3: parseFloat(sliderEls.j3.value), j4: parseFloat(sliderEls.j4.value),
+    x: parseFloat(sliderEls.x.value), y: parseFloat(sliderEls.y.value),
+    z: parseFloat(sliderEls.z.value),
   };
   const now = Date.now();
   if (now - lastSent >= MOVE_INTERVAL) flushMove();
@@ -587,11 +1339,13 @@ function showZFloor(note) {
 function setControlsEnabled(on) {
   connected = on;
   ["btnDisconnect","btnEnable","btnDisable","btnClear","btnStop",
-   "btnSync","btnSuck","btnBlow","btnPumpOff","speed","smooth"].forEach(id =>
+   "btnSync","btnSuck","btnBlow","btnPumpOff","btnPickupTag","btnTransportHeight",
+   "btnDropOff","pickupFineTune","speed","smooth"].forEach(id =>
     document.getElementById(id).disabled = !on);
   Object.values(sliderEls).forEach(el => el.disabled = !on);
   Object.values(numEls).forEach(el => el.disabled = !on);
   document.getElementById("btnConnect").disabled = on;
+  updateAutoZReadout();
 }
 
 function applyRelayStatus(s) {
@@ -611,22 +1365,29 @@ function applyRelayStatus(s) {
   lease.textContent = (typeof s.lease_secs === "number") ? `lease ${s.lease_secs.toFixed(1)} s` : "";
 }
 
-async function poll() { applyStatus(await api("/api/status")); }
+async function poll() {
+  if (armPollBusy) return;
+  armPollBusy = true;
+  try { applyStatus(await api("/api/status")); }
+  finally { armPollBusy = false; }
+}
 function applyStatus(s) {
+  const active = !!s.connected;
+  const enabled = !!(active && s.enabled);
   const connPill = document.getElementById("connPill");
-  connPill.className = "pill " + (s.connected ? "on" : "off");
-  document.getElementById("connText").textContent = s.connected ? "Connected" : "Disconnected";
+  connPill.className = "pill " + (active ? "on" : "off");
+  document.getElementById("connText").textContent = active ? "Connected" : "Disconnected";
 
-  document.getElementById("modeText").textContent = s.mode_name || "—";
-  document.getElementById("modePill").className = "pill " + (s.error ? "error" : (s.enabled ? "on" : "off"));
-  if (s.connected !== connected) setControlsEnabled(s.connected);
+  document.getElementById("modeText").textContent = active ? (s.mode_name || "—") : "—";
+  document.getElementById("modePill").className = "pill " + (s.error ? "error" : (enabled ? "on" : "off"));
+  if (active !== connected) setControlsEnabled(active);
 
   applyRelayStatus(s);
 
   document.getElementById("sFeed").textContent = s.feedback_ok ? "OK (8 ms)" : "—";
   document.getElementById("sMode").textContent = (s.robot_mode ?? "—") + " · " + (s.mode_name || "");
-  document.getElementById("sEnabled").textContent = s.enabled ? "ON" : "off";
-  document.getElementById("sEnabled").style.color = s.enabled ? "var(--ok)" : "var(--muted)";
+  document.getElementById("sEnabled").textContent = enabled ? "ON" : "off";
+  document.getElementById("sEnabled").style.color = enabled ? "var(--ok)" : "var(--muted)";
   document.getElementById("sError").textContent = s.error ? "ERROR" : "none";
   document.getElementById("sError").style.color = s.error ? "var(--err)" : "var(--muted)";
 
@@ -641,10 +1402,10 @@ function applyStatus(s) {
     "pill " + (pumpMode === "off" ? "off" : (pumpMode === "conflict" ? "error" : "on"));
   document.getElementById("pumpText").textContent = pumpMode;
 
-  if (Array.isArray(s.joints)) {
+  if (Array.isArray(s.pose)) {
     AXIS_DEFS.forEach((def, i) => {
       const act = document.getElementById(def.id + "Act");
-      if (act) act.textContent = "actual " + s.joints[i].toFixed(1) + " " + UNIT;
+      if (act) act.textContent = "actual " + s.pose[i].toFixed(0) + " " + def.unit;
     });
   }
 
@@ -655,7 +1416,7 @@ function applyStatus(s) {
       const v = s.target[i];
       if (typeof v !== "number") return;
       if (Math.abs(parseFloat(el.value) - v) > 0.25) {
-        const [lo, hi] = limits[def.id];
+        const [lo, hi] = ws[def.id];
         el.value = Math.max(lo, Math.min(hi, v));
         showAxis(def, el.value);
       }
@@ -668,82 +1429,28 @@ function applyStatus(s) {
     document.getElementById("smoothVal").textContent = s.ramp_secs.toFixed(2) + " s";
   }
 
-  applySlots(s.slots || []);
+  applySlots([]);
 
   // Let the game layer know the arm's connection state (auto-starts the timer).
   if (typeof onArmStatus === "function") onArmStatus(s);
 }
 
-const JK = ["j1","j2","j3","j4"];
 const slotEls = [];
-function buildSlots() {
-  const wrap = document.getElementById("locList");
-  wrap.innerHTML = "";
-  for (let i = 0; i < 10; i++) {
-    const n = i + 1;
-    const row = document.createElement("div");
-    row.className = "locrow empty";
-    row.innerHTML = `
-      <span class="locnum">#${n}</span>
-      <input class="locname" type="text" placeholder="Slot ${n}" />
-      <span class="loccoords">
-        J1<input type="number" class="loccoord" data-k="j1" step="0.5">
-        J2<input type="number" class="loccoord" data-k="j2" step="0.5">
-        J3<input type="number" class="loccoord" data-k="j3" step="0.5">
-        J4<input type="number" class="loccoord" data-k="j4" step="0.5">
-      </span>
-      <button type="button" class="locset">Set</button>
-      <button type="button" class="locrecall" disabled>Recall</button>
-      <button type="button" class="del" title="Clear slot">✕</button>`;
-    wrap.appendChild(row);
-    const q = sel => row.querySelector(sel);
-    const rec = { row, name: q(".locname"),
-      j1: q('[data-k="j1"]'), j2: q('[data-k="j2"]'), j3: q('[data-k="j3"]'), j4: q('[data-k="j4"]'),
-      set: q(".locset"), recall: q(".locrecall"), clear: q(".del") };
+function buildSlots() {}
 
-    rec.name.onchange = () => api(`/api/locations/${n}`, { name: rec.name.value });
-    JK.forEach(k => rec[k].onchange = () => patchSlotPose(i));
-    rec.set.onclick = () => api(`/api/locations/${n}`, { pose: {
-      j1:+sliderEls.j1.value, j2:+sliderEls.j2.value,
-      j3:+sliderEls.j3.value, j4:+sliderEls.j4.value } });
-    rec.recall.onclick = async () => {
-      const res = await api(`/api/recall/${n}`, {});
-      if (res.ok) log(`Recall “${res.slot.name || ('#'+n)}” → moving`, "log-ok");
-      else log(`Recall ✗ ${res.error || ("ErrorID " + res.errid)}`, "log-err");
-    };
-    rec.clear.onclick = () => api(`/api/locations/${n}/clear`, {});
-    slotEls.push(rec);
-  }
-}
-
-function patchSlotPose(i) {
-  const r = slotEls[i];
-  api(`/api/locations/${i + 1}`, { pose: {
-    j1: +r.j1.value || 0, j2: +r.j2.value || 0, j3: +r.j3.value || 0, j4: +r.j4.value || 0 } });
-}
-
-function applySlots(slots) {
-  slots.forEach((s, i) => {
-    const r = slotEls[i];
-    if (!r) return;
-    if (document.activeElement !== r.name) r.name.value = s.name || "";
-    JK.forEach(k => { if (document.activeElement !== r[k]) r[k].value = s.set ? s[k] : ""; });
-    r.row.classList.toggle("empty", !s.set);
-    r.recall.disabled = !s.set || !connected;
-  });
-}
+function applySlots(_slots) {}
 
 function syncSliders() {
   api("/api/status").then(s => {
-    if (!Array.isArray(s.joints)) return;
+    if (!Array.isArray(s.pose)) return;
     AXIS_DEFS.forEach((def, i) => {
       const el = sliderEls[def.id];
-      const [lo, hi] = limits[def.id];
-      const v = Math.max(lo, Math.min(hi, s.joints[i]));
+      const [lo, hi] = ws[def.id];
+      const v = Math.max(lo, Math.min(hi, s.pose[i]));
       el.value = v;
       showAxis(def, v);
     });
-    log("Sliders synced to current joint angles", "log-info");
+    log("Sliders synced to current TCP pose", "log-info");
   });
 }
 
@@ -767,7 +1474,7 @@ function applyIdentity(ident) {
   const sideSel = document.getElementById("relaySide");
   sideSel.value = ident.side;
   sideSel.disabled = true;
-  document.getElementById("armSub").textContent = `Manual Override · ${ident.side} player`;
+  document.getElementById("armSub").textContent = `Manual Override · ${ident.side} player · XYZ`;
   document.getElementById("connHint").textContent =
     `You are the ${ident.side.toUpperCase()} player — this connects through the relay and drives the ${ident.side} arm only.`;
 }
@@ -775,21 +1482,29 @@ function applyIdentity(ident) {
 function wire() {
   document.querySelectorAll("#linkSeg button").forEach(b => b.onclick = () => setLinkMode(b.dataset.link));
   document.getElementById("btnConnect").onclick = async () => {
+    let res;
     if (linkMode === "relay") {
       const host = document.getElementById("relayHost").value.trim();
       const side = document.getElementById("relaySide").value;
-      log(`Connecting to relay ${host} as ${side} …`);
-      report("connect (relay)", await api("/api/connect", { mode:"relay", host, side }));
+      log(`Connecting to relay ${host} as ${side} ...`);
+      res = report("connect (relay)", await api("/api/connect", { mode:"relay", host, side }));
     } else {
       const ip = document.getElementById("ip").value.trim();
       log(`Connecting to ${ip} …`);
-      report("connect", await api("/api/connect", { mode:"direct", ip }));
+      res = report("connect", await api("/api/connect", { mode:"direct", ip }));
+    }
+    if (res.ok) {
+      setTimeout(poll, 100);
+      if (res.enabled) setTimeout(syncSliders, 300);
     }
   };
   document.getElementById("btnDisconnect").onclick = async () => report("disconnect", await api("/api/disconnect", {}));
   document.getElementById("btnEnable").onclick = async () => {
     const res = report("enable", await api("/api/enable", {}));
-    if (res.ok) setTimeout(syncSliders, 300);
+    if (res.ok) {
+      setTimeout(poll, 100);
+      setTimeout(syncSliders, 300);
+    }
   };
   document.getElementById("btnDisable").onclick = async () => report("disable", await api("/api/disable", {}));
   document.getElementById("btnClear").onclick = async () => {
@@ -798,11 +1513,18 @@ function wire() {
     const e = report("enable", await api("/api/enable", {}));
     if (e.ok) setTimeout(syncSliders, 300);
   };
-  document.getElementById("btnStop").onclick = async () => { report("stop / hold", await api("/api/stop", {})); syncSliders(); };
+  document.getElementById("btnStop").onclick = async () => {
+    report("stop / hold", await api("/api/stop", {}));
+    syncSliders();
+  };
   document.getElementById("btnSync").onclick = syncSliders;
   document.getElementById("btnSuck").onclick = async () => report("vacuum (pull)", await api("/api/pump", { mode:"suck" }));
   document.getElementById("btnBlow").onclick = async () => report("blow (push)", await api("/api/pump", { mode:"blow" }));
   document.getElementById("btnPumpOff").onclick = async () => report("pump off", await api("/api/pump", { mode:"off" }));
+  document.getElementById("btnPickupTag").onclick = pickupTag;
+  document.getElementById("btnTransportHeight").onclick = transportHeight;
+  document.getElementById("btnDropOff").onclick = dropOff;
+  document.getElementById("pickupFineTune").addEventListener("input", updateAutoZReadout);
 
   const speed = document.getElementById("speed");
   let speedTimer = null;
@@ -823,7 +1545,12 @@ function wire() {
 
 async function init() {
   const cfg = await api("/api/config");
-  if (cfg.joint_limits) limits = cfg.joint_limits;
+  if (cfg.workspace) ws = cfg.workspace;
+  if (cfg.radius_min) radiusMin = cfg.radius_min;
+  if (cfg.radius_max) radiusMax = cfg.radius_max;
+  gameReachWorkspace = { x:ws.x || gameReachWorkspace.x, y:ws.y || gameReachWorkspace.y };
+  gameRadiusMin = radiusMin;
+  gameRadiusMax = radiusMax;
   if (cfg.default_ip) document.getElementById("ip").value = cfg.default_ip;
   if (cfg.relay_host_default) document.getElementById("relayHost").value = cfg.relay_host_default;
   buildAxes();
@@ -833,11 +1560,22 @@ async function init() {
   applyIdentity(cfg.identity);
   setControlsEnabled(false);
   poll();
-  const es = new EventSource(BASE + "api/events");
-  es.onmessage = e => { try { applyStatus(JSON.parse(e.data)); } catch (_) {} };
+  setInterval(() => poll().catch(() => null), 500);
   log("Ready. Put the robot in API mode, then Connect → Enable.", "log-info");
 }
 init();
+
+window.addEventListener("pagehide", pauseUserMoves);
+window.addEventListener("pageshow", () => {
+  poll().catch(() => null);
+  refreshGameField().catch(() => null);
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    poll().catch(() => null);
+    refreshGameField().catch(() => null);
+  }
+});
 </script>
 </body>
 </html>

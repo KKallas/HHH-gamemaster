@@ -274,6 +274,16 @@ def _fail(error, **kw):
     return jsonify({"ok": False, "error": error, **kw})
 
 
+def _relay_resp_error(resp, fallback="relay command failed"):
+    try:
+        body = json.loads(resp) if isinstance(resp, str) else resp
+    except (TypeError, ValueError):
+        body = None
+    if isinstance(body, dict):
+        return body.get("error") or body.get("resp") or fallback
+    return resp or fallback
+
+
 def _command(fn):
     robot = _current()
     if robot is None or not robot.is_connected():
@@ -328,6 +338,9 @@ def _pump_mode(do_bits):
 def _status_dict():
     robot = _current()
     st = DobotMG400._blank_state() if robot is None else robot.get_state()
+    if not st.get("connected"):
+        st["enabled"] = False
+        st["mode_name"] = "DISCONNECTED"
     st["pump_mode"] = _pump_mode(st.get("digital_out", 0))
     # The commanded target lets other open windows sync their sliders to it.
     st["target"] = None if robot is None else robot.get_target()
@@ -343,6 +356,17 @@ def _status_dict():
     with _loc_lock:
         st["slots"] = [_slot_public(i) for i in range(NUM_SLOTS)]
     return st
+
+
+def _connect_player_relay_locked(ident):
+    """Create a fresh relay client for this player side. Caller holds _robot_lock."""
+    side = ident["side"]
+    host = getattr(_hub_ctx, "local_base", "") or ""
+    robot = RelayClient(host, side, control_mode=CONTROL_MODE,
+                        source=request.host_url.rstrip("/"),
+                        auth=getattr(_hub_ctx, "service_token", None))
+    robot.connect()
+    return robot, host, side
 
 
 @bp.route("/api/status")
@@ -405,10 +429,18 @@ def connect():
                     return _fail(f"Relay is held by {held} — release it first.",
                                  holder=e.holder)
                 return _fail(f"Could not reach relay at {host}: {e}")
+            if ident["is_player"]:
+                errid, resp = robot.enable()
+                if errid != 0:
+                    robot.close()
+                    return _fail(f"Relay arm enable failed: {_relay_resp_error(resp)}",
+                                 errid=errid, resp=resp)
+                robot.start_servo()
+                _apply_motion(robot)
             _robot = robot
             _link = "relay"
             _relay_side = side
-        return _ok(link="relay", host=host, side=side)
+        return _ok(link="relay", host=host, side=side, enabled=bool(ident["is_player"]))
 
     # direct (default)
     ip = data.get("ip", DEFAULT_IP)
@@ -441,9 +473,22 @@ def disconnect():
 
 @bp.route("/api/enable", methods=["POST"])
 def enable():
+    global _robot, _link, _relay_side
     robot = _current()
     if robot is None or not robot.is_connected():
-        return _fail("Not connected")
+        ident = _identity()
+        if not ident["is_player"]:
+            return _fail("Not connected")
+        with _robot_lock:
+            if _robot is not None:
+                _robot.close()
+                _robot = None
+            try:
+                _robot, _host, _relay_side = _connect_player_relay_locked(ident)
+            except RelayError as e:
+                return _fail(f"Could not reach relay: {e}")
+            _link = "relay"
+            robot = _robot
     try:
         robot.clear_error()
     except DobotError:
@@ -455,6 +500,8 @@ def enable():
     if errid == 0:
         robot.start_servo()
         _apply_motion(robot)   # push current speed + smoothness to the follower
+    elif _link == "relay":
+        return _fail(_relay_resp_error(resp), errid=errid, resp=resp)
     return jsonify({"ok": errid == 0, "errid": errid, "resp": resp})
 
 
@@ -537,6 +584,7 @@ def move():
     result = robot.set_target_pose(x, y, z, r)
     if isinstance(result, tuple) and result and result[0] is False:
         return _fail(result[1] or "relay move failed")
+    _live.bump()
     return _ok(clamped={"x": round(x, 2), "y": round(y, 2),
                         "z": round(z, 2), "r": round(r, 2)})
 

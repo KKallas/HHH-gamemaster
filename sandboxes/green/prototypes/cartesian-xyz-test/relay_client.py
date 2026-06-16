@@ -130,6 +130,14 @@ class RelayClient:
             raise RelayError((body or {}).get("error", "relay arm connect failed"),
                              status=status)
 
+    def _refresh_state(self):
+        """Refresh the cached full relay state once, without touching the lease."""
+        status, body = self._get("/api/state")
+        if status is not None and body:
+            with self._lock:
+                self._relay_state = body
+        return body
+
     # -- connection (lease) ---------------------------------------------------
     def connect(self):
         """Acquire our side's arm and start heartbeating. Each side owns its own
@@ -145,7 +153,7 @@ class RelayClient:
         with self._lock:
             self._token = body.get("token")
             self._hb_ok = True
-        self._ensure_arm_connected()
+        self._refresh_state()
         self._start_heartbeat()
 
     def _start_heartbeat(self):
@@ -216,15 +224,16 @@ class RelayClient:
         pump_mode = arm.get("pump_mode", "off")
         link_connected = bool(have_token and hb_ok)
         arm_connected = bool(arm.get("connected"))
+        connected = link_connected
         # We own our own arm now: "holder" (for the controller UI's holder===side
         # check) is OUR side while we're present/driving, else None.
         present = bool(lease.get("present"))
         holder = self.side if (have_token and hb_ok and present) else None
         return {
-            "connected": link_connected,
+            "connected": connected,
             "robot_mode": 0,
             "mode_name": arm.get("mode_name", "RELAY"),
-            "enabled": bool(arm.get("enabled")),
+            "enabled": bool(link_connected and arm_connected and arm.get("enabled")),
             "error": bool(arm.get("servo_error")),
             "joints": list(arm.get("joints") or [0.0, 0.0, 0.0, 0.0]),
             "pose": list(arm.get("pose") or [0.0, 0.0, 0.0, 0.0]),
@@ -265,6 +274,19 @@ class RelayClient:
         })
         if not body or not body.get("ok"):
             return False, (body or {}).get("error", "relay move failed")
+        clamped = (body or {}).get("clamped") or {}
+        target = [
+            float(clamped.get("x", x)),
+            float(clamped.get("y", y)),
+            float(clamped.get("z", z)),
+            float(clamped.get("r", r)),
+        ]
+        with self._lock:
+            rs = self._relay_state
+            if isinstance(rs, dict):
+                arms = rs.setdefault("arms", {})
+                arm = arms.setdefault(self.side, {})
+                arm["target"] = target
         return True, None
 
     def hold(self):
@@ -290,6 +312,8 @@ class RelayClient:
         """Ask the relay to enable the arm (operator-level; clients MAY call it)."""
         status, body = self._post("/api/enable", {"side": self.side})
         ok = bool(body and body.get("ok"))
+        if ok:
+            self._refresh_state()
         return (0 if ok else -1), json.dumps(body) if body else ""
 
     def disable(self):

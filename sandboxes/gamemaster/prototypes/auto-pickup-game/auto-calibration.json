@@ -1,5 +1,12 @@
 {
   "playfield": {
+    "active_area": {
+      "sMin": -0.42,
+      "sMax": 1.42,
+      "tMin": -0.42,
+      "tMax": 1.42
+    },
+    "marker_cache": null,
     "areas": {
       "top_left": {
         "key": "top_left",
@@ -7,7 +14,7 @@
         "u": 0.25,
         "v": 0.25,
         "marker": 20,
-        "area_id": "a4"
+        "area_id": "a931"
       },
       "top_right": {
         "key": "top_right",
@@ -15,7 +22,7 @@
         "u": 0.75,
         "v": 0.25,
         "marker": 21,
-        "area_id": "a5"
+        "area_id": "a932"
       },
       "bottom_right": {
         "key": "bottom_right",
@@ -23,7 +30,7 @@
         "u": 0.75,
         "v": 0.75,
         "marker": 22,
-        "area_id": "a6"
+        "area_id": "a933"
       },
       "bottom_left": {
         "key": "bottom_left",
@@ -31,7 +38,7 @@
         "u": 0.25,
         "v": 0.75,
         "marker": 23,
-        "area_id": "a7"
+        "area_id": "a934"
       },
       "center": {
         "key": "center",
@@ -39,7 +46,7 @@
         "u": 0.5,
         "v": 0.5,
         "marker": 24,
-        "area_id": "a8"
+        "area_id": "a935"
       }
     },
     "corner_map": {
@@ -48,7 +55,7 @@
       "bottom_right": 22,
       "bottom_left": 23
     },
-    "updated_at": 1781558143.8994088
+    "updated_at": 1781622461.784493
   },
   "arms": {
     "green": {
@@ -61,10 +68,10 @@
           "marker": 20,
           "pose": {
             "set": true,
-            "x": 325.31,
-            "y": -32.398,
-            "z": -97.679,
-            "r": -238.51
+            "x": 334.747,
+            "y": 4.658,
+            "z": -95.34,
+            "r": 20.976
           }
         },
         "top_right": {
@@ -75,10 +82,10 @@
           "marker": 21,
           "pose": {
             "set": true,
-            "x": 316.564,
-            "y": -211.566,
-            "z": -97.688,
-            "r": -244.641
+            "x": 337.246,
+            "y": -211.024,
+            "z": -95.883,
+            "r": 12.849
           }
         },
         "bottom_right": {
@@ -89,10 +96,10 @@
           "marker": 22,
           "pose": {
             "set": true,
-            "x": 227.385,
-            "y": -207.897,
-            "z": -98.267,
-            "r": -272.765
+            "x": 226.849,
+            "y": -212.544,
+            "z": -98.238,
+            "r": 19.069
           }
         },
         "bottom_left": {
@@ -103,29 +110,71 @@
           "marker": 23,
           "pose": {
             "set": true,
-            "x": 237.9,
-            "y": -26.94,
-            "z": -98.598,
-            "r": -260.44
+            "x": 221.768,
+            "y": -1.137,
+            "z": -99.586,
+            "r": 13.197
           }
         }
       },
       "center": {
         "set": true,
-        "x": 275.828,
-        "y": -118.006,
-        "z": -97.269,
-        "r": -263.17
+        "x": 279.312,
+        "y": -104.687,
+        "z": -96.577,
+        "r": 11.732
+      },
+      "corner_map": {
+        "top_left": 20,
+        "top_right": 21,
+        "bottom_right": 22,
+        "bottom_left": 23
+      },
+      "marker_cache": {
+        "tags": {
+          "top_left": {
+            "id": 20,
+            "nx": 0.3898,
+            "ny": 0.2778,
+            "missing": 0.0
+          },
+          "top_right": {
+            "id": 21,
+            "nx": 0.6172,
+            "ny": 0.2778,
+            "missing": 0.0
+          },
+          "bottom_right": {
+            "id": 22,
+            "nx": 0.6188,
+            "ny": 0.4921,
+            "missing": 0.0
+          },
+          "bottom_left": {
+            "id": 23,
+            "nx": 0.3909,
+            "ny": 0.4972,
+            "missing": 0.0
+          },
+          "center": {
+            "id": 24,
+            "nx": 0.5057,
+            "ny": 0.3861,
+            "missing": 0.0
+          }
+        },
+        "capturedAt": 1781591196713,
+        "cameraView": "rot180"
       },
       "pickup_height": {
         "set": true,
-        "z": -98.141
+        "z": -98.167
       },
       "transport_height": {
         "set": true,
-        "z": -73.834
+        "z": -81.463
       },
-      "updated_at": 1781554749.627787
+      "updated_at": 1781591196.7175272
     },
     "purple": {
       "points": {
@@ -136,11 +185,11 @@
           "v": 0.25,
           "marker": 20,
           "pose": {
-            "set": false,
-            "x": null,
-            "y": null,
-            "z": null,
-            "r": null
+            "set": true,
+            "x": 344.864,
+            "y": -15.056,
+            "z": -99.637,
+            "r": 135.686
           }
         },
         "top_right": {
@@ -150,11 +199,11 @@
           "v": 0.25,
           "marker": 21,
           "pose": {
-            "set": false,
-            "x": null,
-            "y": null,
-            "z": null,
-            "r": null
+            "set": true,
+            "x": 345.628,
+            "y": -226.099,
+            "z": -101.323,
+            "r": 120.774
           }
         },
         "bottom_right": {
@@ -164,11 +213,11 @@
           "v": 0.75,
           "marker": 22,
           "pose": {
-            "set": false,
-            "x": null,
-            "y": null,
-            "z": null,
-            "r": null
+            "set": true,
+            "x": 233.308,
+            "y": -227.742,
+            "z": -98.305,
+            "r": 112.376
           }
         },
         "bottom_left": {
@@ -178,30 +227,72 @@
           "v": 0.75,
           "marker": 23,
           "pose": {
-            "set": false,
-            "x": null,
-            "y": null,
-            "z": null,
-            "r": null
+            "set": true,
+            "x": 230.738,
+            "y": -13.6,
+            "z": -98.285,
+            "r": 144.236
           }
         }
       },
       "center": {
-        "set": false,
-        "x": null,
-        "y": null,
-        "z": null,
-        "r": null
+        "set": true,
+        "x": 286.915,
+        "y": -116.966,
+        "z": -98.625,
+        "r": 144.33
+      },
+      "corner_map": {
+        "top_left": 22,
+        "top_right": 23,
+        "bottom_right": 20,
+        "bottom_left": 21
+      },
+      "marker_cache": {
+        "tags": {
+          "top_left": {
+            "id": 22,
+            "nx": 0.374,
+            "ny": 0.5134,
+            "missing": 0.0
+          },
+          "top_right": {
+            "id": 23,
+            "nx": 0.6013,
+            "ny": 0.5083,
+            "missing": 0.0
+          },
+          "bottom_right": {
+            "id": 20,
+            "nx": 0.6018,
+            "ny": 0.7269,
+            "missing": 0.0
+          },
+          "bottom_left": {
+            "id": 21,
+            "nx": 0.3753,
+            "ny": 0.7264,
+            "missing": 0.0
+          },
+          "center": {
+            "id": 24,
+            "nx": 0.4865,
+            "ny": 0.6208,
+            "missing": 0.0
+          }
+        },
+        "capturedAt": 1781593769282,
+        "cameraView": "normal"
       },
       "pickup_height": {
-        "set": false,
-        "z": null
+        "set": true,
+        "z": -99.769
       },
       "transport_height": {
-        "set": false,
-        "z": null
+        "set": true,
+        "z": -76.307
       },
-      "updated_at": null
+      "updated_at": 1781593769.286502
     }
   }
 }

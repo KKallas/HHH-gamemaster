@@ -23,6 +23,14 @@
           "green",
           "purple"
         ],
+        "auto-pickup-game": [
+          "green",
+          "purple"
+        ],
+        "playfield-areas": [
+          "green",
+          "purple"
+        ],
         "webcam": [
           "green",
           "purple"
