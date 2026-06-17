@@ -145,7 +145,8 @@
   .moveZoneLayer { position:absolute; inset:0; pointer-events:none; z-index:4;
     transform-origin:0 0; transform:var(--feedOverlayTransform); }
   .reachMask { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
-  .moveZoneBox { position:absolute; border:2px solid var(--warn); background:rgba(245,166,35,.08); box-shadow:0 0 0 9999px rgba(0,0,0,.18); }
+  .moveZoneShape { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .moveZoneShape polygon { fill:rgba(245,166,35,.08); stroke:var(--warn); stroke-width:.55; vector-effect:non-scaling-stroke; }
   .moveZoneLayer[hidden] { display:none; }
   .clickDot { position:absolute; width:16px; height:16px; border:3px solid var(--accent); border-radius:50%; transform:translate(-50%, -50%); z-index:5; box-shadow:0 0 0 9999px rgba(79,157,255,.04); pointer-events:none; }
   .clickDot[hidden] { display:none; }
@@ -358,7 +359,16 @@ const CART = `${location.origin}/s/${TEAM}/p/cartesian-xyz-test`;
 const FLIP_KEY = `auto-pickup-game-flip-${TEAM}`;
 const TAG_OVERLAY_KEY = `auto-pickup-game-tags-${TEAM}`;
 const PLAYER_NAME_KEY = `auto-pickup-game-player-name-${TEAM}`;
+const CORNER_MARKERS = [20, 21, 22, 23];
+const CORNER_KEYS = ["top_left", "top_right", "bottom_right", "bottom_left"];
+const MARKER_REF_POINTS = {
+  20:{ x:0, y:0 },
+  21:{ x:1, y:0 },
+  22:{ x:1, y:1 },
+  23:{ x:0, y:1 },
+};
 const gid = id => document.getElementById(id);
+const HAS_STORED_FLIP = localStorage.getItem(FLIP_KEY) === "0" || localStorage.getItem(FLIP_KEY) === "1";
 
 let gstate = null;
 let playerName = AUTO_PLAYER_NAME;
@@ -375,11 +385,13 @@ let gameReachWorkspace = { x:[-450,450], y:[-450,450] };
 let gameRadiusMin = 150, gameRadiusMax = 440;
 const REACH_GRID_COLS = 56;
 const REACH_GRID_ROWS = 36;
+const EXTRAPOLATION_MARGIN = 0.42;
 let feedZoomState = { scale:1, tx:0, ty:0 };
 let videoClickSeq = 0;
 let lastVideoTargetPoint = null;
 let gamePollBusy = false;
 let scoreRefreshBusy = false;
+let userFlipOverride = HAS_STORED_FLIP;
 
 function invalidateVideoClicks() {
   videoClickSeq += 1;
@@ -406,13 +418,14 @@ async function loadPlayfield() {
   await refreshGameField();
   log("playfield loaded", "log-info");
 }
-function applyFlip() {
+function applyFlip(userInitiated = true) {
   const on = gid('flipToggle').checked;
-  localStorage.setItem(FLIP_KEY, on ? '1' : '0');
+  if (userInitiated) userFlipOverride = true;
+  if (userInitiated) localStorage.setItem(FLIP_KEY, on ? '1' : '0');
   cachedGameTagSet = null;
   latestGameTags = null;
   setMarkerStamp(null);
-  loadGameCalibration().then(refreshGameField).catch(() => refreshGameField());
+  loadGameCalibration({ syncCameraView:false }).then(refreshGameField).catch(() => refreshGameField());
 }
 function tagOverlayVisible() {
   const toggle = gid("tagOverlayToggle");
@@ -439,16 +452,72 @@ function gameArmCal() { return (gameCalibration.arms && gameCalibration.arms[TEA
 function gamePlayfieldCal() { return gameCalibration.playfield || {}; }
 function gameCornerMap() {
   const saved = gameArmCal().corner_map || gamePlayfieldCal().corner_map || {};
-  return {
+  return repairCornerMap({
     top_left:Number(saved.top_left) || 20,
     top_right:Number(saved.top_right) || 21,
     bottom_right:Number(saved.bottom_right) || 22,
     bottom_left:Number(saved.bottom_left) || 23,
-  };
+  });
 }
 function gameMarkerForCorner(key) { return key === "center" ? 24 : gameCornerMap()[key]; }
 function gameCornerMapsMatch(a, b) {
-  return ["top_left", "top_right", "bottom_right", "bottom_left"].every(key => Number((a || {})[key]) === Number((b || {})[key]));
+  return CORNER_KEYS.every(key => Number((a || {})[key]) === Number((b || {})[key]));
+}
+function pointForCornerMap(map, key) {
+  return MARKER_REF_POINTS[Number(map && map[key])];
+}
+function orientation(a, b, c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+function rangesOverlap(a, b, c, d) {
+  return Math.max(Math.min(a, b), Math.min(c, d)) <= Math.min(Math.max(a, b), Math.max(c, d));
+}
+function segmentsIntersect(a, b, c, d) {
+  const o1 = orientation(a, b, c);
+  const o2 = orientation(a, b, d);
+  const o3 = orientation(c, d, a);
+  const o4 = orientation(c, d, b);
+  if (Math.abs(o1) < 0.000001 && Math.abs(o2) < 0.000001 && Math.abs(o3) < 0.000001 && Math.abs(o4) < 0.000001) {
+    return rangesOverlap(a.x, b.x, c.x, d.x) && rangesOverlap(a.y, b.y, c.y, d.y);
+  }
+  return o1 * o2 < 0 && o3 * o4 < 0;
+}
+function cornerMapCrosses(map) {
+  const tl = pointForCornerMap(map, "top_left");
+  const tr = pointForCornerMap(map, "top_right");
+  const br = pointForCornerMap(map, "bottom_right");
+  const bl = pointForCornerMap(map, "bottom_left");
+  if (!(tl && tr && br && bl)) return true;
+  return segmentsIntersect(tl, tr, br, bl) || segmentsIntersect(tr, br, bl, tl);
+}
+function permutations(values) {
+  if (values.length <= 1) return [values];
+  const out = [];
+  values.forEach((value, i) => {
+    const rest = values.slice(0, i).concat(values.slice(i + 1));
+    for (const tail of permutations(rest)) out.push([value, ...tail]);
+  });
+  return out;
+}
+function repairCornerMap(map) {
+  const current = {};
+  CORNER_KEYS.forEach(key => { current[key] = Number(map && map[key]); });
+  if (!Object.values(current).every(marker => CORNER_MARKERS.includes(marker))) {
+    return { top_left:20, top_right:21, bottom_right:22, bottom_left:23 };
+  }
+  if (new Set(Object.values(current)).size !== CORNER_KEYS.length) {
+    return { top_left:20, top_right:21, bottom_right:22, bottom_left:23 };
+  }
+  if (!cornerMapCrosses(current)) return current;
+  let best = null;
+  for (const perm of permutations(Object.values(current))) {
+    const candidate = {};
+    CORNER_KEYS.forEach((key, i) => { candidate[key] = perm[i]; });
+    if (cornerMapCrosses(candidate)) continue;
+    const score = CORNER_KEYS.reduce((sum, key) => sum + (candidate[key] === current[key] ? 0 : (key.startsWith("top_") ? 3 : 1)), 0);
+    if (!best || score < best.score) best = { map:candidate, score };
+  }
+  return best ? best.map : current;
 }
 function completeGameTagSet(tags) {
   return !!(tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left && tags.center);
@@ -466,12 +535,24 @@ function setMarkerStamp(cached) {
 function currentGameCameraView() {
   return gid("flipToggle").checked ? "rot180" : "normal";
 }
+function remapMarkerCache(cache) {
+  if (!cache || !cache.tags || cache.cameraView !== currentGameCameraView()) return null;
+  const source = Object.values(cache.tags).filter(Boolean);
+  const tags = {};
+  for (const key of ["top_left", "top_right", "bottom_right", "bottom_left", "center"]) {
+    const marker = gameMarkerForCorner(key);
+    const match = source.find(tag => Number(tag.id) === marker) || cache.tags[key];
+    if (!match || Number(match.id) !== marker) return null;
+    tags[key] = { ...match, id:marker };
+  }
+  return { tags, capturedAt:Number(cache.capturedAt) || Date.now(), cameraView:cache.cameraView };
+}
 function markerCacheFromGameCalibration() {
   const arm = gameArmCal();
   const pf = gamePlayfieldCal();
-  const cache = arm.marker_cache || (gameCornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
-  if (!cache || !cache.tags || cache.cameraView !== currentGameCameraView()) return null;
-  return { tags:cache.tags, capturedAt:Number(cache.capturedAt) || Date.now(), cameraView:cache.cameraView };
+  return remapMarkerCache(arm.marker_cache)
+    || remapMarkerCache(pf.marker_cache)
+    || (gameCornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? remapMarkerCache(pf.marker_cache) : null);
 }
 function saveGameMarkerCache(cached) {
   if (!cached || !cached.tags) return Promise.resolve(null);
@@ -492,6 +573,7 @@ function saveGameMarkerCache(cached) {
   }).catch(() => null);
 }
 function applyStoredGameCameraView() {
+  if (userFlipOverride) return;
   const arm = gameArmCal();
   const pf = gamePlayfieldCal();
   const cache = arm.marker_cache || (gameCornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
@@ -507,11 +589,11 @@ function gameDisplayTag(tag) {
   const nx = Number(tag.nx), ny = Number(tag.ny);
   return gid('flipToggle').checked ? { ...tag, nx:1 - nx, ny:1 - ny } : { ...tag, nx, ny };
 }
-async function loadGameCalibration() {
+async function loadGameCalibration({ syncCameraView = true } = {}) {
   const data = await gmFetch('/api/calibration');
   gameCalibration = data.calibration || {};
   gameActiveArea = cleanActiveArea(gamePlayfieldCal().active_area);
-  applyStoredGameCameraView();
+  if (syncCameraView) applyStoredGameCameraView();
   cachedGameTagSet = markerCacheFromGameCalibration();
   updateAutoZReadout();
 }
@@ -597,14 +679,12 @@ function setFeedZoom(tags) {
     reset();
     return;
   }
-  const zoneTl = cameraPointFromST(tags, gameActiveArea.sMin, gameActiveArea.tMin);
-  const zoneBr = cameraPointFromST(tags, gameActiveArea.sMax, gameActiveArea.tMax);
-  const tl = feedPointFromCamera(zoneTl.u, zoneTl.v);
-  const br = feedPointFromCamera(zoneBr.u, zoneBr.v);
-  const left = Math.min(tl.x, br.x) / 100 * wrap.width;
-  const top = Math.min(tl.y, br.y) / 100 * wrap.height;
-  const right = Math.max(tl.x, br.x) / 100 * wrap.width;
-  const bottom = Math.max(tl.y, br.y) / 100 * wrap.height;
+  const corners = zoneFeedCorners(tags, gameActiveArea);
+  const bounds = boundsFromPoints([corners.top_left, corners.top_right, corners.bottom_right, corners.bottom_left]);
+  const left = bounds.left / 100 * wrap.width;
+  const top = bounds.top / 100 * wrap.height;
+  const right = bounds.right / 100 * wrap.width;
+  const bottom = bounds.bottom / 100 * wrap.height;
   const zoneW = Math.max(1, right - left);
   const zoneH = Math.max(1, bottom - top);
   const scale = Math.max(1, Math.min(6, Math.min(wrap.width / zoneW, wrap.height / zoneH) * 0.96));
@@ -613,33 +693,77 @@ function setFeedZoom(tags) {
   feedZoomState = { scale, tx, ty };
   applyTransform(scale, tx, ty);
 }
-function avg2(a, b, key) { return (Number(a[key]) + Number(b[key])) / 2; }
-function linearAxis(value, inputMin, inputMax, outputMin, outputMax) {
-  const span = inputMax - inputMin;
-  if (Math.abs(span) < 0.0001) throw new Error("camera calibration span is too small");
-  return outputMin + ((outputMax - outputMin) / span) * (value - inputMin);
-}
-function linearAxisThroughCenter(value, inputMin, inputCenter, inputMax, outputMin, outputCenter, outputMax) {
-  if (!Number.isFinite(inputCenter) || Math.abs(inputCenter - inputMin) < 0.0001 || Math.abs(inputMax - inputCenter) < 0.0001) {
-    return linearAxis(value, inputMin, inputMax, outputMin, outputMax);
-  }
-  return value <= inputCenter
-    ? linearAxis(value, inputMin, inputCenter, outputMin, outputCenter)
-    : linearAxis(value, inputCenter, inputMax, outputCenter, outputMax);
+function camCoord(tag, key) { return Number(tag[key]); }
+function bilinearPoint(tl, tr, br, bl, s, t, xKey, yKey) {
+  const a = (1 - s) * (1 - t);
+  const b = s * (1 - t);
+  const c = s * t;
+  const d = (1 - s) * t;
+  return {
+    x:a * Number(tl[xKey]) + b * Number(tr[xKey]) + c * Number(br[xKey]) + d * Number(bl[xKey]),
+    y:a * Number(tl[yKey]) + b * Number(tr[yKey]) + c * Number(br[yKey]) + d * Number(bl[yKey]),
+  };
 }
 function linearSolveCameraST(u, v, tl, tr, br, bl) {
-  const leftU = avg2(tl, bl, "nx");
-  const rightU = avg2(tr, br, "nx");
-  const topV = avg2(tl, tr, "ny");
-  const bottomV = avg2(bl, br, "ny");
-  const spanU = rightU - leftU;
-  const spanV = bottomV - topV;
-  if (Math.abs(spanU) < 0.0001 || Math.abs(spanV) < 0.0001) throw new Error("calibration tags are too close together");
-  return { rawS:(u - leftU) / spanU, rawT:(v - topV) / spanV, leftU, topV, spanU, spanV };
+  const us = [tl, tr, br, bl].map(p => camCoord(p, "nx"));
+  const vs = [tl, tr, br, bl].map(p => camCoord(p, "ny"));
+  if (![...us, ...vs].every(Number.isFinite)) throw new Error("calibration tags are missing camera coordinates");
+  const minU = Math.min(...us), maxU = Math.max(...us), minV = Math.min(...vs), maxV = Math.max(...vs);
+  if (maxU - minU < 0.0001 || maxV - minV < 0.0001) throw new Error("calibration tags are too close together");
+  const seeds = [
+    [(u - minU) / (maxU - minU), (v - minV) / (maxV - minV)],
+    [0.5, 0.5], [0, 0], [1, 0], [1, 1], [0, 1],
+  ];
+  let best = null;
+  for (const seed of seeds) {
+    let s = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, seed[0]));
+    let t = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, seed[1]));
+    for (let i = 0; i < 14; i += 1) {
+      const p = bilinearPoint(tl, tr, br, bl, s, t, "nx", "ny");
+      const fu = p.x - u, fv = p.y - v;
+      const duDs = (1 - t) * (tr.nx - tl.nx) + t * (br.nx - bl.nx);
+      const dvDs = (1 - t) * (tr.ny - tl.ny) + t * (br.ny - bl.ny);
+      const duDt = (1 - s) * (bl.nx - tl.nx) + s * (br.nx - tr.nx);
+      const dvDt = (1 - s) * (bl.ny - tl.ny) + s * (br.ny - tr.ny);
+      const det = duDs * dvDt - duDt * dvDs;
+      if (Math.abs(det) < 0.000001) break;
+      s -= (fu * dvDt - duDt * fv) / det;
+      t -= (duDs * fv - fu * dvDs) / det;
+      s = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, s));
+      t = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, t));
+    }
+    const p = bilinearPoint(tl, tr, br, bl, s, t, "nx", "ny");
+    const err = Math.hypot(p.x - u, p.y - v);
+    if (!best || err < best.err) best = { s, t, err };
+  }
+  if (!best || best.err > 0.2) throw new Error("camera point is outside the calibrated area");
+  return { rawS:best.s, rawT:best.t, leftU:minU, topV:minV, spanU:maxU - minU, spanV:maxV - minV };
 }
 function cameraPointFromST(cam, s, t) {
-  const solved = linearSolveCameraST(0, 0, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
-  return { u:solved.leftU + solved.spanU * s, v:solved.topV + solved.spanV * t };
+  const p = bilinearPoint(cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left, s, t, "nx", "ny");
+  return { u:p.x, v:p.y };
+}
+function zoneFeedCorners(tags, zone = gameActiveArea) {
+  const corners = {
+    top_left:cameraPointFromST(tags, zone.sMin, zone.tMin),
+    top_right:cameraPointFromST(tags, zone.sMax, zone.tMin),
+    bottom_right:cameraPointFromST(tags, zone.sMax, zone.tMax),
+    bottom_left:cameraPointFromST(tags, zone.sMin, zone.tMax),
+  };
+  for (const key of Object.keys(corners)) {
+    const p = corners[key];
+    corners[key] = feedPointFromCamera(p.u, p.v);
+  }
+  return corners;
+}
+function boundsFromPoints(points) {
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  return { left:Math.min(...xs), top:Math.min(...ys), right:Math.max(...xs), bottom:Math.max(...ys) };
+}
+function zoneSvg(corners) {
+  const pts = [corners.top_left, corners.top_right, corners.bottom_right, corners.bottom_left];
+  const points = pts.map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(" ");
+  return `<svg class="moveZoneShape" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${points}" /></svg>`;
 }
 function robotPointFromST(cam, s, t) {
   const cal = gameArmCal();
@@ -650,16 +774,8 @@ function robotPointFromST(cam, s, t) {
   const bl = pts.bottom_left && pts.bottom_left.pose;
   const center = cal.center && cal.center.set ? cal.center : null;
   if (![tl, tr, br, bl].every(p => p && p.set) || !center || !cam.center) return null;
-  const point = cameraPointFromST(cam, s, t);
-  const solved = linearSolveCameraST(point.u, point.v, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
-  const robotTopX = avg2(tl, tr, "x");
-  const robotBottomX = avg2(bl, br, "x");
-  const robotLeftY = avg2(tl, bl, "y");
-  const robotRightY = avg2(tr, br, "y");
-  return {
-    x: linearAxisThroughCenter(point.v, solved.topV, cam.center.ny, solved.topV + solved.spanV, robotTopX, center.x, robotBottomX),
-    y: linearAxisThroughCenter(point.u, solved.leftU, cam.center.nx, solved.leftU + solved.spanU, robotLeftY, center.y, robotRightY),
-  };
+  const p = bilinearPoint(tl, tr, br, bl, s, t, "x", "y");
+  return { x:p.x, y:p.y };
 }
 function robotPointReachable(point) {
   if (!point) return true;
@@ -678,27 +794,25 @@ function renderReachMask(tags) {
     return "";
   }
   const cells = [];
+  const sSpan = gameActiveArea.sMax - gameActiveArea.sMin;
+  const tSpan = gameActiveArea.tMax - gameActiveArea.tMin;
   for (let row = 0; row < REACH_GRID_ROWS; row += 1) {
     for (let col = 0; col < REACH_GRID_COLS; col += 1) {
-      const u0 = col / REACH_GRID_COLS;
-      const u1 = (col + 1) / REACH_GRID_COLS;
-      const v0 = row / REACH_GRID_ROWS;
-      const v1 = (row + 1) / REACH_GRID_ROWS;
-      const u = (u0 + u1) / 2;
-      const v = (v0 + v1) / 2;
-      let solved = null, pose = null;
+      const s0 = gameActiveArea.sMin + sSpan * (col / REACH_GRID_COLS);
+      const s1 = gameActiveArea.sMin + sSpan * ((col + 1) / REACH_GRID_COLS);
+      const t0 = gameActiveArea.tMin + tSpan * (row / REACH_GRID_ROWS);
+      const t1 = gameActiveArea.tMin + tSpan * ((row + 1) / REACH_GRID_ROWS);
+      let pose = null;
       try {
-        solved = linearSolveCameraST(u, v, tags.top_left, tags.top_right, tags.bottom_right, tags.bottom_left);
-        pose = robotPointFromST(tags, solved.rawS, solved.rawT);
+        pose = robotPointFromST(tags, (s0 + s1) / 2, (t0 + t1) / 2);
       } catch (_) {
         continue;
       }
       if (robotPointReachable(pose)) continue;
-      const a = feedPointFromCamera(u0, v0);
-      const b = feedPointFromCamera(u1, v1);
-      const left = Math.min(a.x, b.x), top = Math.min(a.y, b.y);
-      const width = Math.abs(b.x - a.x), height = Math.abs(b.y - a.y);
-      cells.push(`<rect x="${left.toFixed(3)}" y="${top.toFixed(3)}" width="${width.toFixed(3)}" height="${height.toFixed(3)}" />`);
+      const cell = zoneFeedCorners(tags, { sMin:s0, sMax:s1, tMin:t0, tMax:t1 });
+      const points = [cell.top_left, cell.top_right, cell.bottom_right, cell.bottom_left]
+        .map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(" ");
+      cells.push(`<polygon points="${points}" />`);
     }
   }
   if (!cells.length) return "";
@@ -764,14 +878,9 @@ function renderGameField(tags) {
     layer.innerHTML = "";
     return;
   }
-  const zoneTl = cameraPointFromST(tags, gameActiveArea.sMin, gameActiveArea.tMin);
-  const zoneBr = cameraPointFromST(tags, gameActiveArea.sMax, gameActiveArea.tMax);
-  const tl = feedPointFromCamera(zoneTl.u, zoneTl.v);
-  const br = feedPointFromCamera(zoneBr.u, zoneBr.v);
-  const left = Math.min(tl.x, br.x), top = Math.min(tl.y, br.y);
-  const right = Math.max(tl.x, br.x), bottom = Math.max(tl.y, br.y);
+  const corners = zoneFeedCorners(tags, gameActiveArea);
   layer.hidden = false;
-  layer.innerHTML = `${renderReachMask(tags)}<div class="moveZoneBox" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${(right-left).toFixed(2)}%;height:${(bottom-top).toFixed(2)}%"></div>`;
+  layer.innerHTML = `${renderReachMask(tags)}${zoneSvg(corners)}`;
 }
 async function refreshGameField() {
   try {
@@ -810,24 +919,16 @@ function clickToPose(u, v) {
   const center = cal.center && cal.center.set ? cal.center : null;
   if (![tl, tr, br, bl].every(p => p && p.set) || !center) throw new Error("calibrate this arm first");
   const cached = cachedGameTagSet || markerCacheFromGameCalibration();
-  const cam = latestGameTags || (cached && cached.tags);
+  const cam = completeGameTagSet(latestGameTags) ? latestGameTags : (cached && cached.tags);
   if (!completeGameTagSet(cam)) throw new Error("stored calibration tag locations are missing; open Auto PP calibration and capture Transport Z while all five tags are visible");
   const solved = linearSolveCameraST(u, v, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
   if (solved.rawS < gameActiveArea.sMin || solved.rawS > gameActiveArea.sMax || solved.rawT < gameActiveArea.tMin || solved.rawT > gameActiveArea.tMax) {
     throw new Error("target is outside the active playing field");
   }
-  const robotTopX = avg2(tl, tr, "x");
-  const robotBottomX = avg2(bl, br, "x");
-  const robotLeftY = avg2(tl, bl, "y");
-  const robotRightY = avg2(tr, br, "y");
-  const camLeftU = solved.leftU, camRightU = solved.leftU + solved.spanU;
-  const camTopV = solved.topV, camBottomV = solved.topV + solved.spanV;
+  const xy = robotPointFromST(cam, solved.rawS, solved.rawT);
+  if (!xy) throw new Error("calibrate this arm first");
   const z = Number(sliderEls.z && sliderEls.z.value) || (cal.transport_height && cal.transport_height.z) || center.z;
-  return baseSafePose({
-    x: linearAxisThroughCenter(v, camTopV, cam.center.ny, camBottomV, robotTopX, center.x, robotBottomX),
-    y: linearAxisThroughCenter(u, camLeftU, cam.center.nx, camRightU, robotLeftY, center.y, robotRightY),
-    z,
-  });
+  return baseSafePose({ x:xy.x, y:xy.y, z });
 }
 function syncTargetSliders(pose, axes = ["x", "y"]) {
   for (const id of axes) {
@@ -1039,8 +1140,8 @@ function gameInit() {
   gid('tagOverlayToggle').checked = localStorage.getItem(TAG_OVERLAY_KEY) !== '0';
   gid('tagOverlayToggle').addEventListener('change', applyTagOverlayToggle);
   gid('flipToggle').checked = localStorage.getItem(FLIP_KEY) === '1';
-  gid('flipToggle').addEventListener('change', applyFlip);
-  applyFlip();
+  gid('flipToggle').addEventListener('change', () => applyFlip(true));
+  applyFlip(false);
   loadPlayfield().catch(() => startWebcam());
   gid('webcamFeed').onerror = () => setTimeout(startWebcam, 1000);
   gid('webcamFeed').parentElement.addEventListener('click', handleVideoClick);

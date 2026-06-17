@@ -24,8 +24,9 @@
   .calOverlay[hidden], .moveZoneLayer[hidden] { display:none; }
   .moveZoneLayer { position:absolute; inset:0; pointer-events:none; z-index:4; }
   .reachMask { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
-  .moveZoneBox { position:absolute; border:2px solid var(--warn); background:rgba(245,166,35,.08); box-shadow:0 0 0 9999px rgba(0,0,0,.18); }
-  .moveZoneBox::before { content:"Active field"; position:absolute; left:6px; top:6px; padding:2px 6px; border-radius:4px; background:rgba(3,4,5,.82); color:var(--warn); font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
+  .moveZoneShape { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .moveZoneShape polygon { fill:rgba(245,166,35,.08); stroke:var(--warn); stroke-width:.55; vector-effect:non-scaling-stroke; }
+  .moveZoneLabel { position:absolute; padding:2px 6px; border-radius:4px; background:rgba(3,4,5,.82); color:var(--warn); font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; transform:translate(6px, 6px); pointer-events:none; }
   .zoneHandle { position:absolute; width:18px; height:18px; border:2px solid #2a1c00; border-radius:50%; background:var(--warn); pointer-events:auto; transform:translate(-50%, -50%); box-shadow:0 0 0 2px rgba(0,0,0,.35); }
   .zoneHandle[data-handle="left"], .zoneHandle[data-handle="right"] { cursor:ew-resize; }
   .zoneHandle[data-handle="top"], .zoneHandle[data-handle="bottom"] { cursor:ns-resize; }
@@ -158,6 +159,12 @@ const CAMERA_KEY = `auto-pp-calibrate-camera-${TEAM}`;
 const CORNER_MAP_KEY = `auto-pp-calibrate-corner-map-${TEAM}`;
 const CAL_POINTS = [["top_left","Top left"],["top_right","Top right"],["bottom_right","Bottom right"],["bottom_left","Bottom left"]];
 const CORNER_MARKERS = [20, 21, 22, 23];
+const MARKER_REF_POINTS = {
+  20:{ x:0, y:0 },
+  21:{ x:1, y:0 },
+  22:{ x:1, y:1 },
+  23:{ x:0, y:1 },
+};
 const CENTER_MARKER = 24;
 const EXTRAPOLATION_MARGIN = 0.42;
 const CAL_TAG_SIZE = 2.8;
@@ -301,11 +308,63 @@ function cornerMap() {
     const marker = Number(saved[key]);
     if (CORNER_MARKERS.includes(marker)) out[key] = marker;
   }
-  return out;
+  return repairCornerMap(out);
 }
 function markerForCorner(key) { return key === "center" ? CENTER_MARKER : cornerMap()[key]; }
 function cornerMapsMatch(a, b) {
   return CAL_POINTS.every(([key]) => Number((a || {})[key]) === Number((b || {})[key]));
+}
+function pointForCornerMap(map, key) {
+  return MARKER_REF_POINTS[Number(map && map[key])];
+}
+function orientation(a, b, c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+function rangesOverlap(a, b, c, d) {
+  return Math.max(Math.min(a, b), Math.min(c, d)) <= Math.min(Math.max(a, b), Math.max(c, d));
+}
+function segmentsIntersect(a, b, c, d) {
+  const o1 = orientation(a, b, c);
+  const o2 = orientation(a, b, d);
+  const o3 = orientation(c, d, a);
+  const o4 = orientation(c, d, b);
+  if (Math.abs(o1) < 0.000001 && Math.abs(o2) < 0.000001 && Math.abs(o3) < 0.000001 && Math.abs(o4) < 0.000001) {
+    return rangesOverlap(a.x, b.x, c.x, d.x) && rangesOverlap(a.y, b.y, c.y, d.y);
+  }
+  return o1 * o2 < 0 && o3 * o4 < 0;
+}
+function cornerMapCrosses(map) {
+  const tl = pointForCornerMap(map, "top_left");
+  const tr = pointForCornerMap(map, "top_right");
+  const br = pointForCornerMap(map, "bottom_right");
+  const bl = pointForCornerMap(map, "bottom_left");
+  if (!(tl && tr && br && bl)) return true;
+  return segmentsIntersect(tl, tr, br, bl) || segmentsIntersect(tr, br, bl, tl);
+}
+function permutations(values) {
+  if (values.length <= 1) return [values];
+  const out = [];
+  values.forEach((value, i) => {
+    const rest = values.slice(0, i).concat(values.slice(i + 1));
+    for (const tail of permutations(rest)) out.push([value, ...tail]);
+  });
+  return out;
+}
+function repairCornerMap(map) {
+  const current = {};
+  for (const [key] of CAL_POINTS) current[key] = Number(map && map[key]);
+  if (!Object.values(current).every(marker => CORNER_MARKERS.includes(marker))) return defaultCornerMap();
+  if (new Set(Object.values(current)).size !== CAL_POINTS.length) return defaultCornerMap();
+  if (!cornerMapCrosses(current)) return current;
+  let best = null;
+  for (const perm of permutations(Object.values(current))) {
+    const candidate = {};
+    CAL_POINTS.forEach(([key], i) => { candidate[key] = perm[i]; });
+    if (cornerMapCrosses(candidate)) continue;
+    const score = CAL_POINTS.reduce((sum, [key]) => sum + (candidate[key] === current[key] ? 0 : (key.startsWith("top_") ? 3 : 1)), 0);
+    if (!best || score < best.score) best = { map:candidate, score };
+  }
+  return best ? best.map : current;
 }
 function applyLocalCornerMap(map) {
   calibration.arms = calibration.arms || {};
@@ -315,6 +374,28 @@ function applyLocalCornerMap(map) {
   localStorage.setItem(CORNER_MAP_KEY, JSON.stringify(map));
   cachedTagSet = null;
   latestTags = null;
+}
+function currentCornerMap() {
+  const out = {};
+  for (const [key] of CAL_POINTS) {
+    const select = el(`corner-${key}`);
+    const marker = Number(select ? select.value : cornerMap()[key]);
+    if (!CORNER_MARKERS.includes(marker)) throw new Error("corner tags must use the displayed tag numbers");
+    out[key] = marker;
+  }
+  if (new Set(Object.values(out)).size !== CAL_POINTS.length) {
+    throw new Error("each corner must use a different tag number");
+  }
+  return repairCornerMap(out);
+}
+async function saveCurrentCornerMap(statusText) {
+  const next = currentCornerMap();
+  applyLocalCornerMap(next);
+  if (statusText) setStatus(statusText);
+  const data = await gmApi("/api/calibration/corner-map", { side:TEAM, corner_map:next });
+  calibration = data.calibration || calibration;
+  applyLocalCornerMap(next);
+  return next;
 }
 function completeTagSet(tags) {
   return !!(tags && tags.top_left && tags.top_right && tags.bottom_right && tags.bottom_left && tags.center);
@@ -341,9 +422,21 @@ function applyCameraView() {
 function markerCacheFromCalibration() {
   const arm = armCal();
   const pf = playfieldCal();
-  const cache = arm.marker_cache || (cornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? pf.marker_cache : null);
+  return remapMarkerCache(arm.marker_cache)
+    || remapMarkerCache(pf.marker_cache)
+    || (cornerMapsMatch(arm.corner_map || pf.corner_map, pf.corner_map) ? remapMarkerCache(pf.marker_cache) : null);
+}
+function remapMarkerCache(cache) {
   if (!cache || !cache.tags || cache.cameraView !== el("cameraView").value) return null;
-  return { tags:cache.tags, capturedAt:Number(cache.capturedAt) || Date.now(), cameraView:cache.cameraView };
+  const source = Object.values(cache.tags).filter(Boolean);
+  const tags = {};
+  for (const key of ["top_left", "top_right", "bottom_right", "bottom_left", "center"]) {
+    const marker = markerForCorner(key);
+    const match = source.find(tag => Number(tag.id) === marker) || cache.tags[key];
+    if (!match || Number(match.id) !== marker) return null;
+    tags[key] = { ...match, id:marker };
+  }
+  return { tags, capturedAt:Number(cache.capturedAt) || Date.now(), cameraView:cache.cameraView };
 }
 function applyStoredCameraView() {
   const arm = armCal();
@@ -386,30 +479,80 @@ function feedPointFromCamera(u, v) {
   const f = imageFrameRect();
   return { x:((f.left + Number(u) * f.width - f.wrapLeft) / f.wrapWidth) * 100, y:((f.top + Number(v) * f.height - f.wrapTop) / f.wrapHeight) * 100 };
 }
-function avg2(a, b, key) { return (Number(a[key]) + Number(b[key])) / 2; }
+function camCoord(tag, key) { return Number(tag[key]); }
+function bilinearPoint(tl, tr, br, bl, s, t, xKey, yKey) {
+  const a = (1 - s) * (1 - t);
+  const b = s * (1 - t);
+  const c = s * t;
+  const d = (1 - s) * t;
+  return {
+    x:a * Number(tl[xKey]) + b * Number(tr[xKey]) + c * Number(br[xKey]) + d * Number(bl[xKey]),
+    y:a * Number(tl[yKey]) + b * Number(tr[yKey]) + c * Number(br[yKey]) + d * Number(bl[yKey]),
+  };
+}
 function linearSolveCameraST(u, v, tl, tr, br, bl) {
-  const leftU = avg2(tl, bl, "nx"), rightU = avg2(tr, br, "nx");
-  const topV = avg2(tl, tr, "ny"), bottomV = avg2(bl, br, "ny");
-  const spanU = rightU - leftU, spanV = bottomV - topV;
-  if (Math.abs(spanU) < 0.0001 || Math.abs(spanV) < 0.0001) throw new Error("calibration tags are too close together");
-  return { rawS:(u - leftU) / spanU, rawT:(v - topV) / spanV, leftU, topV, spanU, spanV };
+  const us = [tl, tr, br, bl].map(p => camCoord(p, "nx"));
+  const vs = [tl, tr, br, bl].map(p => camCoord(p, "ny"));
+  if (![...us, ...vs].every(Number.isFinite)) throw new Error("calibration tags are missing camera coordinates");
+  const minU = Math.min(...us), maxU = Math.max(...us), minV = Math.min(...vs), maxV = Math.max(...vs);
+  if (maxU - minU < 0.0001 || maxV - minV < 0.0001) throw new Error("calibration tags are too close together");
+  const seeds = [
+    [(u - minU) / (maxU - minU), (v - minV) / (maxV - minV)],
+    [0.5, 0.5], [0, 0], [1, 0], [1, 1], [0, 1],
+  ];
+  let best = null;
+  for (const seed of seeds) {
+    let s = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, seed[0]));
+    let t = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, seed[1]));
+    for (let i = 0; i < 14; i += 1) {
+      const p = bilinearPoint(tl, tr, br, bl, s, t, "nx", "ny");
+      const fu = p.x - u, fv = p.y - v;
+      const duDs = (1 - t) * (tr.nx - tl.nx) + t * (br.nx - bl.nx);
+      const dvDs = (1 - t) * (tr.ny - tl.ny) + t * (br.ny - bl.ny);
+      const duDt = (1 - s) * (bl.nx - tl.nx) + s * (br.nx - tr.nx);
+      const dvDt = (1 - s) * (bl.ny - tl.ny) + s * (br.ny - tr.ny);
+      const det = duDs * dvDt - duDt * dvDs;
+      if (Math.abs(det) < 0.000001) break;
+      s -= (fu * dvDt - duDt * fv) / det;
+      t -= (duDs * fv - fu * dvDs) / det;
+      s = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, s));
+      t = Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, t));
+    }
+    const p = bilinearPoint(tl, tr, br, bl, s, t, "nx", "ny");
+    const err = Math.hypot(p.x - u, p.y - v);
+    if (!best || err < best.err) best = { s, t, err };
+  }
+  if (!best || best.err > 0.2) throw new Error("camera point is outside the calibrated area");
+  return { rawS:best.s, rawT:best.t, leftU:minU, topV:minV, spanU:maxU - minU, spanV:maxV - minV };
 }
 function cameraPointFromST(cam, s, t) {
-  const solved = linearSolveCameraST(0, 0, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
-  return { u:solved.leftU + solved.spanU * s, v:solved.topV + solved.spanV * t };
+  const p = bilinearPoint(cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left, s, t, "nx", "ny");
+  return { u:p.x, v:p.y };
 }
-function linearAxis(value, inputMin, inputMax, outputMin, outputMax) {
-  const span = inputMax - inputMin;
-  if (Math.abs(span) < 0.0001) throw new Error("camera calibration span is too small");
-  return outputMin + ((outputMax - outputMin) / span) * (value - inputMin);
+function midpoint(a, b) {
+  return { x:(a.x + b.x) / 2, y:(a.y + b.y) / 2 };
 }
-function linearAxisThroughCenter(value, inputMin, inputCenter, inputMax, outputMin, outputCenter, outputMax) {
-  if (!Number.isFinite(inputCenter) || Math.abs(inputCenter - inputMin) < 0.0001 || Math.abs(inputMax - inputCenter) < 0.0001) {
-    return linearAxis(value, inputMin, inputMax, outputMin, outputMax);
+function zoneFeedCorners(tags, zone = movementZone) {
+  const corners = {
+    top_left:cameraPointFromST(tags, zone.sMin, zone.tMin),
+    top_right:cameraPointFromST(tags, zone.sMax, zone.tMin),
+    bottom_right:cameraPointFromST(tags, zone.sMax, zone.tMax),
+    bottom_left:cameraPointFromST(tags, zone.sMin, zone.tMax),
+  };
+  for (const key of Object.keys(corners)) {
+    const p = corners[key];
+    corners[key] = feedPointFromCamera(p.u, p.v);
   }
-  return value <= inputCenter
-    ? linearAxis(value, inputMin, inputCenter, outputMin, outputCenter)
-    : linearAxis(value, inputCenter, inputMax, outputCenter, outputMax);
+  return corners;
+}
+function boundsFromPoints(points) {
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  return { left:Math.min(...xs), top:Math.min(...ys), right:Math.max(...xs), bottom:Math.max(...ys) };
+}
+function zoneSvg(corners, id = "") {
+  const pts = [corners.top_left, corners.top_right, corners.bottom_right, corners.bottom_left];
+  const points = pts.map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(" ");
+  return `<svg class="moveZoneShape" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon${id ? ` id="${id}"` : ""} points="${points}" /></svg>`;
 }
 function robotPointFromST(cam, s, t) {
   const cal = armCal();
@@ -420,16 +563,8 @@ function robotPointFromST(cam, s, t) {
   const bl = pts.bottom_left && pts.bottom_left.pose;
   const center = cal.center && cal.center.set ? cal.center : null;
   if (![tl, tr, br, bl].every(p => p && p.set) || !center || !cam.center) return null;
-  const point = cameraPointFromST(cam, s, t);
-  const solved = linearSolveCameraST(point.u, point.v, cam.top_left, cam.top_right, cam.bottom_right, cam.bottom_left);
-  const robotTopX = avg2(tl, tr, "x");
-  const robotBottomX = avg2(bl, br, "x");
-  const robotLeftY = avg2(tl, bl, "y");
-  const robotRightY = avg2(tr, br, "y");
-  return {
-    x:linearAxisThroughCenter(point.v, solved.topV, cam.center.ny, solved.topV + solved.spanV, robotTopX, center.x, robotBottomX),
-    y:linearAxisThroughCenter(point.u, solved.leftU, cam.center.nx, solved.leftU + solved.spanU, robotLeftY, center.y, robotRightY),
-  };
+  const p = bilinearPoint(tl, tr, br, bl, s, t, "x", "y");
+  return { x:p.x, y:p.y };
 }
 function robotPointReachable(point) {
   if (!point) return true;
@@ -463,13 +598,10 @@ function renderReachMask(tags) {
         continue;
       }
       if (robotPointReachable(pose)) continue;
-      const camA = cameraPointFromST(tags, s0, t0);
-      const camB = cameraPointFromST(tags, s1, t1);
-      const a = feedPointFromCamera(camA.u, camA.v);
-      const b = feedPointFromCamera(camB.u, camB.v);
-      const left = Math.min(a.x, b.x), top = Math.min(a.y, b.y);
-      const width = Math.abs(b.x - a.x), height = Math.abs(b.y - a.y);
-      cells.push(`<rect x="${left.toFixed(3)}" y="${top.toFixed(3)}" width="${width.toFixed(3)}" height="${height.toFixed(3)}" />`);
+      const cell = zoneFeedCorners(tags, { sMin:s0, sMax:s1, tMin:t0, tMax:t1 });
+      const points = [cell.top_left, cell.top_right, cell.bottom_right, cell.bottom_left]
+        .map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(" ");
+      cells.push(`<polygon points="${points}" />`);
     }
   }
   if (!cells.length) return "";
@@ -486,6 +618,36 @@ function renderReachMask(tags) {
 function clampZoneValue(v) {
   return Math.max(-EXTRAPOLATION_MARGIN, Math.min(1 + EXTRAPOLATION_MARGIN, Number(v)));
 }
+function zonePointFromPointer(ev, tags) {
+  const f = imageFrameRect();
+  if (!f.width || !f.height) return null;
+  const u = Math.max(0, Math.min(1, (ev.clientX - f.left) / f.width));
+  const v = Math.max(0, Math.min(1, (ev.clientY - f.top) / f.height));
+  try {
+    const solved = linearSolveCameraST(u, v, tags.top_left, tags.top_right, tags.bottom_right, tags.bottom_left);
+    return { s:clampZoneValue(solved.rawS), t:clampZoneValue(solved.rawT) };
+  } catch (_) {
+    return null;
+  }
+}
+function clampZoneEdge(value, min, max) {
+  return Math.max(min, Math.min(max, clampZoneValue(value)));
+}
+function startZoneDrag(ev, handle) {
+  if (!latestTags) return;
+  const point = zonePointFromPointer(ev, latestTags);
+  if (!point) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  zoneDrag = {
+    handle,
+    startZone:{ ...movementZone },
+    startS:point.s,
+    startT:point.t,
+    dirty:false,
+  };
+  ev.currentTarget.setPointerCapture?.(ev.pointerId);
+}
 function renderCornerMap() {
   if (document.activeElement && document.activeElement.matches("#cornerMap select[data-corner]")) return;
   const map = cornerMap();
@@ -499,21 +661,13 @@ function renderCornerMap() {
   el("btnConfirmCornerMap").onclick = saveCornerMap;
 }
 async function saveCornerMap() {
-  const next = {};
-  for (const [key] of CAL_POINTS) next[key] = Number(el(`corner-${key}`).value);
-  applyLocalCornerMap(next);
-  renderCalibration();
-  refreshOverlay();
-  setStatus("Saving corner tag map...");
   try {
-    const data = await gmApi("/api/calibration/corner-map", { side:TEAM, corner_map:next });
-    calibration = data.calibration || calibration;
-    applyLocalCornerMap(next);
+    await saveCurrentCornerMap("Saving corner tag map...");
     renderCalibration();
     refreshOverlay();
     setStatus("Corner tag map saved.");
   } catch (e) {
-    setStatus(`Corner tag map is shown locally but was not saved: ${e.message}`);
+    setStatus(`Corner tag map was not saved: ${e.message}`);
   }
 }
 function poseText(pose) {
@@ -551,11 +705,13 @@ function currentPoseFromStatus(s) {
 async function captureCalibration(target) {
   if (!requireCalibrationAccess()) return;
   try {
+    const activeMap = await saveCurrentCornerMap("Saving robot-view corner tags before capture...");
     const status = await cartApi("/api/status");
     const pose = currentPoseFromStatus(status);
     if (!pose) throw new Error("No live robot pose to capture");
     const data = await gmApi("/api/calibration/capture", { side:TEAM, team:TEAM, target, pose });
     calibration = data.calibration || calibration;
+    applyLocalCornerMap(activeMap);
     if (target === "transport_height") {
       try {
         await storeFinalMarkerSnapshot();
@@ -682,30 +838,38 @@ function renderMovementZone(tags) {
     layer.innerHTML = "";
     return;
   }
-  const zoneTl = cameraPointFromST(tags, movementZone.sMin, movementZone.tMin);
-  const zoneBr = cameraPointFromST(tags, movementZone.sMax, movementZone.tMax);
-  const tl = feedPointFromCamera(zoneTl.u, zoneTl.v), br = feedPointFromCamera(zoneBr.u, zoneBr.v);
-  const left = Math.min(tl.x, br.x), top = Math.min(tl.y, br.y), right = Math.max(tl.x, br.x), bottom = Math.max(tl.y, br.y);
-  const cx = (left + right) / 2, cy = (top + bottom) / 2;
-  const handles = [["top_left",left,top],["top",cx,top],["top_right",right,top],["right",right,cy],["bottom_right",right,bottom],["bottom",cx,bottom],["bottom_left",left,bottom],["left",left,cy]]
+  const corners = zoneFeedCorners(tags);
+  const bounds = boundsFromPoints([corners.top_left, corners.top_right, corners.bottom_right, corners.bottom_left]);
+  const handles = [
+    ["top_left", corners.top_left.x, corners.top_left.y],
+    ["top", midpoint(corners.top_left, corners.top_right).x, midpoint(corners.top_left, corners.top_right).y],
+    ["top_right", corners.top_right.x, corners.top_right.y],
+    ["right", midpoint(corners.top_right, corners.bottom_right).x, midpoint(corners.top_right, corners.bottom_right).y],
+    ["bottom_right", corners.bottom_right.x, corners.bottom_right.y],
+    ["bottom", midpoint(corners.bottom_left, corners.bottom_right).x, midpoint(corners.bottom_left, corners.bottom_right).y],
+    ["bottom_left", corners.bottom_left.x, corners.bottom_left.y],
+    ["left", midpoint(corners.top_left, corners.bottom_left).x, midpoint(corners.top_left, corners.bottom_left).y],
+  ]
     .map(([name,x,y]) => `<div class="zoneHandle" data-handle="${name}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%"></div>`).join("");
   layer.hidden = false;
-  layer.innerHTML = `${renderReachMask(tags)}<div class="moveZoneBox" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${(right-left).toFixed(2)}%;height:${(bottom-top).toFixed(2)}%"></div>${handles}`;
-  for (const h of layer.querySelectorAll(".zoneHandle")) h.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); zoneDrag = { handle:h.dataset.handle }; h.setPointerCapture?.(ev.pointerId); };
+  layer.innerHTML = `${renderReachMask(tags)}${zoneSvg(corners)}<div class="moveZoneLabel" style="left:${bounds.left.toFixed(2)}%;top:${bounds.top.toFixed(2)}%">Active field</div>${handles}`;
+  for (const h of layer.querySelectorAll(".zoneHandle")) h.onpointerdown = ev => startZoneDrag(ev, h.dataset.handle);
 }
 function updateZoneFromPointer(ev) {
   if (!zoneDrag || !latestTags) return;
-  const f = imageFrameRect();
-  const u = Math.max(0, Math.min(1, (ev.clientX - f.left) / f.width));
-  const v = Math.max(0, Math.min(1, (ev.clientY - f.top) / f.height));
-  const solved = linearSolveCameraST(u, v, latestTags.top_left, latestTags.top_right, latestTags.bottom_right, latestTags.bottom_left);
-  const minGap = 0.05;
-  const next = { ...movementZone };
-  if (zoneDrag.handle.includes("left")) next.sMin = Math.min(clampZoneValue(solved.rawS), next.sMax - minGap);
-  if (zoneDrag.handle.includes("right")) next.sMax = Math.max(clampZoneValue(solved.rawS), next.sMin + minGap);
-  if (zoneDrag.handle.includes("top")) next.tMin = Math.min(clampZoneValue(solved.rawT), next.tMax - minGap);
-  if (zoneDrag.handle.includes("bottom")) next.tMax = Math.max(clampZoneValue(solved.rawT), next.tMin + minGap);
-  movementZone = cleanActiveArea(next);
+  const point = zonePointFromPointer(ev, latestTags);
+  if (!point) return;
+  const minGap = 0.0501;
+  const base = zoneDrag.startZone || movementZone;
+  const ds = point.s - zoneDrag.startS;
+  const dt = point.t - zoneDrag.startT;
+  const next = { ...base };
+  if (zoneDrag.handle.includes("left")) next.sMin = clampZoneEdge(base.sMin + ds, -EXTRAPOLATION_MARGIN, base.sMax - minGap);
+  if (zoneDrag.handle.includes("right")) next.sMax = clampZoneEdge(base.sMax + ds, base.sMin + minGap, 1 + EXTRAPOLATION_MARGIN);
+  if (zoneDrag.handle.includes("top")) next.tMin = clampZoneEdge(base.tMin + dt, -EXTRAPOLATION_MARGIN, base.tMax - minGap);
+  if (zoneDrag.handle.includes("bottom")) next.tMax = clampZoneEdge(base.tMax + dt, base.tMin + minGap, 1 + EXTRAPOLATION_MARGIN);
+  zoneDrag.dirty = true;
+  movementZone = next;
   renderMovementZone(latestTags);
 }
 async function saveMovementZone() {
@@ -715,10 +879,13 @@ async function saveMovementZone() {
 }
 function stopZoneDrag() {
   if (!zoneDrag) return;
+  const changed = zoneDrag.dirty;
   zoneDrag = null;
+  if (!changed) return;
   saveMovementZone().then(() => setStatus("Active playing field saved.")).catch(e => setStatus(e.message));
 }
 async function refreshOverlay() {
+  if (zoneDrag) return;
   const cached = await activeCalibrationTags();
   renderOverlay(cached ? cached.tags : {});
   setMarkerStamp(cached);
@@ -840,7 +1007,12 @@ function wire() {
   el("btnResetArea").onclick = () => {
     if (!requireCalibrationAccess()) return;
     movementZone = { sMin:0, sMax:1, tMin:0, tMax:1 };
-    saveMovementZone().then(refreshOverlay);
+    if (latestTags) renderMovementZone(latestTags);
+    setStatus("Resetting active field to the calibrated area...");
+    saveMovementZone()
+      .then(() => refreshOverlay())
+      .then(() => setStatus("Active field reset to the calibrated area."))
+      .catch(e => setStatus(e.message));
   };
   el("btnDownloadCal").onclick = () => downloadCalibrationZip().catch(e => setStatus(e.message));
   el("btnUploadCal").onclick = () => el("uploadCalFile").click();
@@ -863,6 +1035,7 @@ function wire() {
   };
   document.addEventListener("pointermove", updateZoneFromPointer);
   document.addEventListener("pointerup", stopZoneDrag);
+  document.addEventListener("pointercancel", stopZoneDrag);
   window.addEventListener("pointerup", () => { draggingId = null; });
 }
 async function init() {
