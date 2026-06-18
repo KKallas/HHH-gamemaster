@@ -1,8 +1,8 @@
 """
 Auto Pick and Place game — gamemaster master controller.
 
-Two players (green + purple), each independent. Player controllers open straight
-to controls and auto-register. The operator can calibrate robot poses against
+Two players (green + purple), each independent. Player controllers ask for a
+name before registering. The operator can calibrate robot poses against
 ArUco markers rendered by Playfield Areas, then click the webcam view to map a
 detected screen location into a robot cartesian move. Every finished run is
 appended to ``auto-pickup-log.csv``.
@@ -78,8 +78,8 @@ RADIUS_MAX = 440.0
 
 MANIFEST = {
     "name": "Auto Pick and Place",
-    "description": "Auto pick-and-place game: each player opens directly to "
-                   "controls, the gamemaster marks finishes, all logged to CSV.",
+    "description": "Auto pick-and-place game: each player enters a name, "
+                   "the gamemaster marks finishes, all logged to CSV.",
     "default_page": "game",
     "pages": [{"path": "game", "label": "Auto Pick and Place"}],
 }

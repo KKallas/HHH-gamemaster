@@ -1,10 +1,9 @@
 """
 Player view for the Auto Pick and Place game.
 
-Mounted in a team sandbox. The page registers a default player name for this
-team, opens directly to the play screen, then drives XYZ + the air pump
-through this team's joint-angles-test relay controller to move the block from
-one square to the other. The gamemaster logs the time to CSV.
+Mounted in a team sandbox. The player enters a name first, then drives XYZ +
+the air pump through this team's cartesian relay controller to move the block
+from one square to the other. The gamemaster logs the time to CSV.
 """
 
 import os
@@ -15,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 MANIFEST = {
     "name": "Auto Pick and Place",
-    "description": "Player view for the pick-and-place game: auto-register, "
+    "description": "Player view for the pick-and-place game: enter name, "
                    "watch the live feed, drive XYZ + pump, then finish.",
     "default_page": "",
     "pages": [{"path": "", "label": "Auto Pick and Place"}],

@@ -181,7 +181,8 @@
   <form id="nameForm" class="nameDialog" autocomplete="off">
     <h1>Player name</h1>
     <p>Enter the name that should appear on the Auto Pick and Place scoreboard.</p>
-    <input id="nameInput" type="text" maxlength="32" required />
+    <input id="nameInput" type="text" list="nameOptions" maxlength="32" autocomplete="off" required />
+    <datalist id="nameOptions"></datalist>
     <div class="row">
       <button id="btnNameSubmit" class="primary" type="submit">Play</button>
       <span id="nameErr" class="err"></span>
@@ -349,8 +350,6 @@
    per-player timer, and finish marked by the gamemaster.
    ===================================================================== */
 const TEAM = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] === 'green' ? 'green' : 'purple';
-const TEAM_LABEL = TEAM.charAt(0).toUpperCase() + TEAM.slice(1);
-const AUTO_PLAYER_NAME = `${TEAM_LABEL} Auto`;
 const GM = `${location.origin}/s/gamemaster/p/auto-pickup-game`;
 const WEBCAM = `${location.origin}/s/gamemaster/p/webcam/api/stream`;
 const WEBCAM_TAGS = `${location.origin}/s/gamemaster/p/webcam/api/tags`;
@@ -358,10 +357,12 @@ const CART = `${location.origin}/s/${TEAM}/p/cartesian-xyz-test`;
 const FLIP_KEY = `auto-pickup-game-flip-${TEAM}`;
 const TAG_OVERLAY_KEY = `auto-pickup-game-tags-${TEAM}`;
 const PLAYER_NAME_KEY = `auto-pickup-game-player-name-${TEAM}`;
+const NAME_HISTORY_KEY = "auto-pickup-game-player-names";
 const gid = id => document.getElementById(id);
 
 let gstate = null;
-let playerName = AUTO_PLAYER_NAME;
+let playerName = "";
+let playerNameConfirmed = false;
 let clockHandle = 0;
 let gPrevPhase = null;     // last seen phase for this team (to detect resets)
 let armLinked = false;     // is this team's arm currently connected?
@@ -868,15 +869,49 @@ async function handleVideoClick(ev) {
   }
 }
 
+function cleanName(value) {
+  return String(value || "").trim().slice(0, 32);
+}
 function storedPlayerName() {
-  return (localStorage.getItem(PLAYER_NAME_KEY) || "").trim().slice(0, 32);
+  return cleanName(localStorage.getItem(PLAYER_NAME_KEY));
 }
 function setPlayerName(name) {
-  playerName = String(name || "").trim().slice(0, 32);
+  playerName = cleanName(name);
   if (playerName) localStorage.setItem(PLAYER_NAME_KEY, playerName);
   gid("playerName").textContent = playerName || "—";
 }
+function nameHistory() {
+  try {
+    const names = JSON.parse(localStorage.getItem(NAME_HISTORY_KEY) || "[]");
+    return Array.isArray(names) ? names.map(cleanName).filter(Boolean) : [];
+  } catch (_) {
+    return [];
+  }
+}
+function rememberName(name) {
+  const seen = new Set();
+  const names = [];
+  for (const next of [name, ...nameHistory()].map(cleanName).filter(Boolean)) {
+    const key = next.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(next);
+  }
+  localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(names.slice(0, 24)));
+  renderNameOptions();
+}
+function renderNameOptions() {
+  const list = gid("nameOptions");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const name of nameHistory().slice(0, 8)) {
+    const option = document.createElement("option");
+    option.value = name;
+    list.appendChild(option);
+  }
+}
 function showNameDialog(message = "") {
+  renderNameOptions();
   gid("nameErr").textContent = message;
   gid("nameInput").value = playerName || storedPlayerName();
   gid("nameGate").hidden = false;
@@ -894,7 +929,7 @@ function showApp() {
 function setBanner(text, show) { gid('feedBanner').hidden = !show; if (show) gid('feedBanner').textContent = text; }
 
 function shouldAutoRegister(s) {
-  if (!playerName) return false;
+  if (!playerName || !playerNameConfirmed) return false;
   const ts = myTeam(s);
   const phase = ts.phase || 'idle';
   return phase === 'idle' || !ts.player || (phase === 'ready' && ts.player !== playerName);
@@ -902,7 +937,7 @@ function shouldAutoRegister(s) {
 
 async function registerAutoPlayer() {
   if (autoRegistering) return;
-  if (!playerName) {
+  if (!playerName || !playerNameConfirmed) {
     showNameDialog();
     return;
   }
@@ -978,9 +1013,10 @@ async function pressNew() {
 async function onGameReset() {
   autoStartDone = false;
   armLinked = false;
+  playerNameConfirmed = false;
   try { await api('/api/disconnect', {}); } catch (_) {}   // release the relay arm
   showApp();
-  registerAutoPlayer();
+  showNameDialog();
 }
 
 function gameApplyState(s) {
@@ -1021,15 +1057,17 @@ function gameInit() {
   gid('teamName').textContent = TEAM.toUpperCase();
   gid('teamName').className = 'teamName ' + TEAM;
   setPlayerName(storedPlayerName());
-  if (!playerName) showNameDialog();
+  showNameDialog();
   gid('nameForm').addEventListener('submit', ev => {
     ev.preventDefault();
-    const next = gid('nameInput').value.trim().slice(0, 32);
+    const next = cleanName(gid('nameInput').value);
     if (!next) {
       gid('nameErr').textContent = 'Name required.';
       return;
     }
     setPlayerName(next);
+    rememberName(next);
+    playerNameConfirmed = true;
     hideNameDialog();
     registerAutoPlayer();
   });
@@ -1056,12 +1094,12 @@ function gameInit() {
     gmFetch('/api/state').then(s => {
       gameApplyState(s);
       if (shouldAutoRegister(s)) registerAutoPlayer();
-    }).catch(() => { if (playerName) registerAutoPlayer(); }).finally(() => { gamePollBusy = false; });
+    }).catch(() => { if (playerNameConfirmed) registerAutoPlayer(); }).finally(() => { gamePollBusy = false; });
   };
   gmFetch('/api/state').then(s => {
     gameApplyState(s);
     if (shouldAutoRegister(s)) registerAutoPlayer();
-  }).catch(() => { if (playerName) registerAutoPlayer(); });
+  }).catch(() => { if (playerNameConfirmed) registerAutoPlayer(); });
   setInterval(pollGameState, 700);
 }
 gameInit();
